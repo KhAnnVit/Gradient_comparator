@@ -56,33 +56,49 @@ class OCRViewerFrame(ctk.CTkFrame):
             pass
 
     def send_selection(self, field_num):
-        """Отправляет только выделенный курсором фрагмент"""
+        """
+        Отправляет выделенный фрагмент текста в одно из полей сравнения.
+
+        Теперь OCR-раздел не обращается напрямую к CompareSection.
+        Он передаёт текст через AppController.
+        """
+
         try:
-            selected_text = self.textbox.get("sel.first", "sel.last")
-            compare_frame = self.master.frames["tab3"]
+            selected_text = self.textbox.get("sel.first", "sel.last").strip()
 
-            if field_num == 1:
-                compare_frame.set_text_left(selected_text)
-            else:
-                compare_frame.set_text_right(selected_text)
+            if not selected_text:
+                print("Текст не выделен!")
+                return
 
-            # Автоматически переключаем на третий раздел
-            self.master.select_frame("tab3")
+            self.master.controller.send_text_to_compare(
+                text=selected_text,
+                field_num=field_num,
+                source="ocr"
+            )
+
         except Exception:
             print("Текст не выделен!")
 
     def send_full_text(self, field_num):
-        """Отправляет весь текст из окна целиком"""
+        """
+        Отправляет весь OCR-текст в одно из полей сравнения.
+
+        field_num:
+            1 — левое поле сравнения
+            2 — правое поле сравнения
+        """
+
         full_text = self.textbox.get("0.0", "end").strip()
-        compare_frame = self.master.frames["tab3"]
 
-        if field_num == 1:
-            compare_frame.set_text_left(full_text)
-        else:
-            compare_frame.set_text_right(full_text)
+        if not full_text:
+            print("OCR-текст пустой!")
+            return
 
-        # Автоматически переключаем на третий раздел
-        self.master.select_frame("tab3")
+        self.master.controller.send_text_to_compare(
+            text=full_text,
+            field_num=field_num,
+            source="ocr"
+        )
 
     def update_content(self, pil_image, text):
         """Метод, который будет вызываться из первого раздела при успешном OCR"""
