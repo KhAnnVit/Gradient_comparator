@@ -2,11 +2,12 @@ import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog, Menu, messagebox
 
-from PIL import ImageTk
+from PIL import Image, ImageTk
 from pdf2image import convert_from_path
 
-from config import POPPLER_PATH
-from src.ocr_engine import extract_text_from_pil
+from config import POPPLER_PATH, OCR_LANGUAGES
+from src.models.ocr_models import OCRSettings
+from src.services.ocr_service import OCRService
 from src.utils.logger import logger
 
 
@@ -28,6 +29,21 @@ class PDFViewerFrame(ctk.CTkFrame):
 
     def __init__(self, master):
         super().__init__(master)
+
+        # Сервис OCR.
+        self.ocr_service = OCRService()
+
+        # Режимы OCR, которые будут отображаться пользователю.
+        # Слева — текст в интерфейсе, справа — внутренний mode для OCRService.
+        self.ocr_mode_map = {
+            "Обычный": "default",
+            "Мелкий текст": "small_text",
+            "Блок текста": "block",
+            "Состав": "composition",
+            "Без обработки": "raw",
+        }
+
+        self.ocr_mode_var = tk.StringVar(value="Обычный")
 
         # Главная сетка фрейма:
         # row=0 — верхняя панель кнопок
@@ -140,6 +156,21 @@ class PDFViewerFrame(ctk.CTkFrame):
         )
         self.mode_switch.pack(side="left", padx=20, pady=5)
         self.mode_switch.set("Выделение")
+
+        # ---------- Выбор режима OCR ----------
+        self.ocr_mode_label = ctk.CTkLabel(
+            self.top_panel,
+            text="OCR:"
+        )
+        self.ocr_mode_label.pack(side="left", padx=(10, 5), pady=5)
+
+        self.ocr_mode_menu = ctk.CTkOptionMenu(
+            self.top_panel,
+            values=list(self.ocr_mode_map.keys()),
+            variable=self.ocr_mode_var,
+            width=150
+        )
+        self.ocr_mode_menu.pack(side="left", padx=5, pady=5)
 
         # ---------- Canvas ----------
         # Canvas используется, потому что на нём удобно:
@@ -594,11 +625,24 @@ class PDFViewerFrame(ctk.CTkFrame):
     # =========================================================
     # ОТПРАВКА В OCR
     # =========================================================
+    def get_selected_ocr_mode(self):
+        """
+        Возвращает внутреннее название выбранного OCR-режима.
+
+        Пользователь видит:
+            "Мелкий текст"
+
+        OCRService получает:
+            "small_text"
+        """
+
+        visible_mode = self.ocr_mode_var.get()
+        return self.ocr_mode_map.get(visible_mode, "default")
 
     def send_to_ocr(self):
         """
-        Вырезает выделенную область, запускает OCR и передаёт результат
-        во второй раздел приложения.
+        Вырезает выделенную область, запускает OCR в выбранном режиме
+        и передаёт результат в OCR-раздел через AppController.
         """
 
         cropped_image = self.get_cropped_image()
@@ -608,38 +652,64 @@ class PDFViewerFrame(ctk.CTkFrame):
                 "Нет области",
                 "Не удалось вырезать область. Проверьте, что выделение находится на изображении."
             )
-            self.set_status("Не удалось вырезать область.")
+            logger.warning("OCR не запущен: не удалось вырезать выделенную область.")
             return
 
+        selected_mode = self.get_selected_ocr_mode()
+        visible_mode = self.ocr_mode_var.get()
+
         try:
-            self.set_status("Распознавание текста...")
             self.configure(cursor="watch")
             self.update_idletasks()
 
-            logger.info("Запущено OCR для выделенной области. Размер: %sx%s",
-                        cropped_image.width, cropped_image.height)
+            logger.info(
+                "Запущено OCR из PDF. mode=%s, visible_mode=%s, image_size=%s",
+                selected_mode,
+                visible_mode,
+                cropped_image.size
+            )
 
-            recognized_text = extract_text_from_pil(cropped_image)
+            result = self.ocr_service.recognize_from_pil(
+                pil_image=cropped_image,
+                settings=OCRSettings(
+                    mode=selected_mode,
+                    languages=OCR_LANGUAGES
+                )
+            )
 
-            logger.info("OCR завершено. Длина текста: %s символов",
-                        len(recognized_text))
+            if not result.success:
+                logger.error(
+                    "OCR завершился ошибкой. mode=%s, error=%s",
+                    selected_mode,
+                    result.error_message
+                )
 
-            # Пока оставляем старую схему связи между окнами.
-            # На следующем архитектурном этапе это лучше заменить на AppController.
-            ocr_frame = self.master.frames["tab2"]
-            ocr_frame.update_content(cropped_image, recognized_text)
+                messagebox.showerror(
+                    "Ошибка OCR",
+                    f"Не удалось распознать текст.\n\nРежим: {visible_mode}\nОшибка: {result.error_message}"
+                )
+                return
 
-            self.master.select_frame("tab2")
+            logger.info(
+                "OCR успешно завершён. mode=%s, text_length=%s",
+                selected_mode,
+                len(result.text)
+            )
 
-            self.set_status("Текст распознан и отправлен в раздел OCR.")
+            # Передаём результат через AppController.
+            self.master.controller.show_ocr_result(
+                image=cropped_image,
+                text=result.text,
+                source=f"pdf_selection:{selected_mode}"
+            )
 
         except Exception:
-            logger.exception("Ошибка во время OCR")
+            logger.exception("Ошибка при OCR из PDF")
+
             messagebox.showerror(
                 "Ошибка OCR",
-                "Не удалось распознать текст в выделенной области."
+                "Произошла ошибка во время распознавания текста. Подробности в app.log."
             )
-            self.set_status("Ошибка OCR.")
 
         finally:
             self.configure(cursor="")
