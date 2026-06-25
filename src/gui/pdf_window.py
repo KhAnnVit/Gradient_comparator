@@ -271,6 +271,9 @@ class PDFViewerFrame(ctk.CTkFrame):
             self.pdf_path = file_path
             self.original_image = pages[0]
 
+            # Сохраняем путь к PDF в общем состоянии приложения
+            self.master.controller.set_current_pdf(file_path)
+
             # Сбрасываем состояние просмотра для нового файла.
             self.zoom_factor = 1.0
             self.angle = 0
