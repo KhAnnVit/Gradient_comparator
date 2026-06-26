@@ -118,6 +118,21 @@ class AppController:
 
         logger.info("Текущий PDF сохранён в состоянии: %s", pdf_path)
 
+    def set_current_pdf_page(self, page_number: int):
+        """
+        Сохраняет номер текущей страницы PDF.
+
+        page_number хранится в формате 0-based:
+            0 — первая страница.
+        """
+
+        self.state.current_pdf_page = page_number
+
+        logger.info(
+            "Текущая страница PDF сохранена в состоянии: %s",
+            page_number
+        )
+
     # =========================================================
     # OCR
     # =========================================================
