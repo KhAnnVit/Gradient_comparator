@@ -13,104 +13,105 @@ from src.utils.logger import logger
 
 class PDFViewerFrame(ctk.CTkFrame):
     """
-    Первый раздел приложения: просмотр PDF, перемещение изображения,
-    масштабирование, поворот, выделение области и отправка её в OCR.
+    Первый раздел приложения: просмотр PDF.
+
+    Что умеет:
+    - загружать PDF;
+    - показывать первую страницу;
+    - двигать изображение;
+    - масштабировать изображение;
+    - поворачивать изображение;
+    - выделять область;
+    - вырезать выделенную область;
+    - отправлять выделенную область в OCR.
     """
 
-    # Ограничения зума, чтобы пользователь случайно не сделал изображение
-    # слишком маленьким или слишком огромным.
     MIN_ZOOM = 0.2
     MAX_ZOOM = 5.0
     ZOOM_STEP = 1.1
 
-    # DPI для конвертации PDF в изображение.
-    # Чем выше DPI, тем лучше качество OCR, но тем тяжелее изображение.
     PDF_DPI = 300
+
+    DEFAULT_OCR_MODE = "Обычный"
+
+    OCR_MODE_MAP = {
+        "Обычный": "default",
+        "Мелкий текст": "small_text",
+        "Блок текста": "block",
+        "Состав": "composition",
+        "Без обработки": "raw",
+    }
+
+    MODE_PAN = "Перемещение"
+    MODE_SELECT = "Выделение"
 
     def __init__(self, master):
         super().__init__(master)
 
-        # Сервис OCR.
         self.ocr_service = OCRService()
 
-        # Режимы OCR, которые будут отображаться пользователю.
-        # Слева — текст в интерфейсе, справа — внутренний mode для OCRService.
-        self.ocr_mode_map = {
-            "Обычный": "default",
-            "Мелкий текст": "small_text",
-            "Блок текста": "block",
-            "Состав": "composition",
-            "Без обработки": "raw",
-        }
-
-        self.ocr_mode_var = tk.StringVar(value="Обычный")
-
-        # Главная сетка фрейма:
-        # row=0 — верхняя панель кнопок
-        # row=1 — Canvas с PDF
-        # row=2 — строка статуса
-        self.grid_rowconfigure(1, weight=1)
-        self.grid_columnconfigure(0, weight=1)
-
         self._init_state()
+        self._configure_grid()
         self._create_widgets()
         self._bind_events()
 
     # =========================================================
-    # ИНИЦИАЛИЗАЦИЯ СОСТОЯНИЯ
+    # ИНИЦИАЛИЗАЦИЯ
     # =========================================================
 
     def _init_state(self):
         """
-        Создаёт все переменные состояния для PDF-просмотра.
-
-        Важно:
-        - original_image хранит страницу PDF без зума и поворота;
-        - rotated_image хранит страницу после поворота;
-        - current_image хранит страницу после поворота и зума;
-        - tk_image нужен Tkinter, чтобы показать картинку на Canvas.
+        Создаёт состояние PDF-раздела.
         """
 
-        # Путь к загруженному PDF.
         self.pdf_path = None
 
-        # Изображения.
+        # Изображения:
+        # original_image — страница PDF без поворота и зума;
+        # rotated_image — страница после поворота;
+        # current_image — страница после поворота и зума;
+        # tk_image — изображение для Canvas.
         self.original_image = None
         self.rotated_image = None
         self.current_image = None
         self.tk_image = None
 
-        # Текущий масштаб.
         self.zoom_factor = 1.0
-
-        # Текущий угол поворота.
-        # Значения: 0, 90, 180, 270.
         self.angle = 0
 
-        # Смещение изображения относительно центра Canvas.
-        # Нужно для режима "Перемещение".
         self.offset_x = 0
         self.offset_y = 0
 
-        # Координаты мыши на предыдущем шаге перемещения.
         self.last_mouse_x = 0
         self.last_mouse_y = 0
 
-        # ID прямоугольника выделения на Canvas.
         self.rect_id = None
-
-        # Начальная точка выделения.
         self.start_x = 0
         self.start_y = 0
+
+        self.ocr_mode_var = tk.StringVar(value=self.DEFAULT_OCR_MODE)
+
+    def _configure_grid(self):
+        """Настраивает сетку PDF-раздела."""
+
+        self.grid_rowconfigure(1, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
     # =========================================================
     # СОЗДАНИЕ ИНТЕРФЕЙСА
     # =========================================================
 
     def _create_widgets(self):
-        """Создаёт все элементы интерфейса этого раздела."""
+        """Создаёт интерфейс PDF-раздела."""
 
-        # ---------- Верхняя панель ----------
+        self._create_top_panel()
+        self._create_canvas()
+        self._create_status_label()
+        self._create_context_menu()
+
+    def _create_top_panel(self):
+        """Создаёт верхнюю панель управления."""
+
         self.top_panel = ctk.CTkFrame(self, height=40)
         self.top_panel.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
 
@@ -146,18 +147,14 @@ class PDFViewerFrame(ctk.CTkFrame):
         )
         self.btn_clear_selection.pack(side="left", padx=5, pady=5)
 
-        # Переключатель режимов:
-        # - Перемещение: пользователь двигает PDF по Canvas.
-        # - Выделение: пользователь рисует рамку для OCR.
         self.mode_switch = ctk.CTkSegmentedButton(
             self.top_panel,
-            values=["Перемещение", "Выделение"],
+            values=[self.MODE_PAN, self.MODE_SELECT],
             width=220
         )
         self.mode_switch.pack(side="left", padx=20, pady=5)
-        self.mode_switch.set("Выделение")
+        self.mode_switch.set(self.MODE_SELECT)
 
-        # ---------- Выбор режима OCR ----------
         self.ocr_mode_label = ctk.CTkLabel(
             self.top_panel,
             text="OCR:"
@@ -166,17 +163,15 @@ class PDFViewerFrame(ctk.CTkFrame):
 
         self.ocr_mode_menu = ctk.CTkOptionMenu(
             self.top_panel,
-            values=list(self.ocr_mode_map.keys()),
+            values=list(self.OCR_MODE_MAP.keys()),
             variable=self.ocr_mode_var,
             width=150
         )
         self.ocr_mode_menu.pack(side="left", padx=5, pady=5)
 
-        # ---------- Canvas ----------
-        # Canvas используется, потому что на нём удобно:
-        # - показывать изображение;
-        # - двигать его;
-        # - рисовать прямоугольник выделения.
+    def _create_canvas(self):
+        """Создаёт Canvas для отображения PDF."""
+
         self.canvas = tk.Canvas(
             self,
             bg="#2b2b2b",
@@ -184,7 +179,9 @@ class PDFViewerFrame(ctk.CTkFrame):
         )
         self.canvas.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
-        # ---------- Строка статуса ----------
+    def _create_status_label(self):
+        """Создаёт нижнюю строку статуса."""
+
         self.status_label = ctk.CTkLabel(
             self,
             text="Загрузите PDF для начала работы.",
@@ -192,8 +189,9 @@ class PDFViewerFrame(ctk.CTkFrame):
         )
         self.status_label.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 8))
 
-        # ---------- Контекстное меню ----------
-        # Показывается при правом клике по выделенной области.
+    def _create_context_menu(self):
+        """Создаёт контекстное меню для выделенной области."""
+
         self.context_menu = Menu(self, tearoff=0)
         self.context_menu.add_command(
             label="Распознать текст",
@@ -201,43 +199,35 @@ class PDFViewerFrame(ctk.CTkFrame):
         )
 
     # =========================================================
-    # ПРИВЯЗКА СОБЫТИЙ
+    # СОБЫТИЯ
     # =========================================================
 
     def _bind_events(self):
-        """Привязывает события мыши и изменения размера Canvas."""
+        """Привязывает события Canvas."""
 
-        # Колёсико мыши на Windows/macOS.
         self.canvas.bind("<MouseWheel>", self.zoom_image)
 
-        # Колёсико мыши на некоторых Linux-системах.
+        # Linux-варианты колёсика.
         self.canvas.bind("<Button-4>", self.zoom_image)
         self.canvas.bind("<Button-5>", self.zoom_image)
 
-        # Левая кнопка мыши:
-        # в зависимости от режима либо двигает изображение,
-        # либо начинает выделение области.
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_press)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
-
-        # Правая кнопка мыши открывает меню,
-        # если клик был внутри выделенной области.
         self.canvas.bind("<Button-3>", self.show_context_menu)
-
-        # При изменении размера Canvas перерисовываем изображение,
-        # чтобы оно оставалось корректно расположенным.
         self.canvas.bind("<Configure>", self.on_canvas_resize)
 
     # =========================================================
-    # СЛУЖЕБНЫЕ МЕТОДЫ ИНТЕРФЕЙСА
+    # СТАТУС И СБРОСЫ
     # =========================================================
 
     def set_status(self, text):
-        """Обновляет текст в нижней строке статуса."""
+        """Обновляет строку статуса."""
+
         self.status_label.configure(text=text)
 
     def clear_selection(self):
-        """Удаляет текущую рамку выделения, если она есть."""
+        """Удаляет рамку выделения."""
+
         if self.rect_id is not None:
             self.canvas.delete(self.rect_id)
             self.rect_id = None
@@ -245,29 +235,42 @@ class PDFViewerFrame(ctk.CTkFrame):
 
     def reset_view(self):
         """
-        Возвращает изображение к начальному виду:
-        - масштаб 100%;
-        - угол 0°;
-        - без смещения;
-        - без выделения.
+        Сбрасывает вид PDF:
+        - масштаб;
+        - поворот;
+        - смещение;
+        - выделение.
         """
+
         if self.original_image is None:
             return
+
+        self._reset_view_state()
+        self.clear_selection()
+        self.update_image()
+        self.set_status("Вид сброшен.")
+
+    def _reset_view_state(self):
+        """Сбрасывает параметры просмотра."""
 
         self.zoom_factor = 1.0
         self.angle = 0
         self.offset_x = 0
         self.offset_y = 0
-        self.clear_selection()
-        self.update_image()
-        self.set_status("Вид сброшен.")
+
+    def _reset_selection_state(self):
+        """Сбрасывает данные выделения без обращения к Canvas."""
+
+        self.rect_id = None
+        self.start_x = 0
+        self.start_y = 0
 
     # =========================================================
     # ЗАГРУЗКА PDF
     # =========================================================
 
     def load_pdf(self):
-        """Открывает PDF-файл и конвертирует первую страницу в изображение."""
+        """Открывает PDF и загружает первую страницу."""
 
         file_path = filedialog.askopenfilename(
             title="Выберите PDF-файл",
@@ -283,40 +286,22 @@ class PDFViewerFrame(ctk.CTkFrame):
 
             logger.info("Загрузка PDF: %s", file_path)
 
-            pages = convert_from_path(
-                file_path,
-                dpi=self.PDF_DPI,
-                poppler_path=str(POPPLER_PATH)
-            )
+            pages = self._convert_pdf_to_images(file_path)
 
             if not pages:
-                messagebox.showwarning(
-                    "PDF не загружен",
-                    "Не удалось получить страницы из PDF-файла."
-                )
-                self.set_status("PDF не загружен.")
+                self._handle_empty_pdf()
                 return
 
-            # Пока берём только первую страницу.
-            # Позже можно добавить переключение страниц.
-            self.pdf_path = file_path
-            self.original_image = pages[0]
+            self._set_loaded_pdf(
+                file_path=file_path,
+                first_page=pages[0]
+            )
 
-            # Сохраняем путь к PDF в общем состоянии приложения
-            self.master.controller.set_current_pdf(file_path)
-
-            # Сбрасываем состояние просмотра для нового файла.
-            self.zoom_factor = 1.0
-            self.angle = 0
-            self.offset_x = 0
-            self.offset_y = 0
-            self.rect_id = None
-
-            self.update_image()
-
-            self.set_status(f"PDF загружен: {file_path}")
-            logger.info("PDF успешно загружен. Размер первой страницы: %sx%s",
-                        self.original_image.width, self.original_image.height)
+            logger.info(
+                "PDF успешно загружен. Размер первой страницы: %sx%s",
+                self.original_image.width,
+                self.original_image.height
+            )
 
         except Exception:
             logger.exception("Ошибка при загрузке PDF")
@@ -326,50 +311,96 @@ class PDFViewerFrame(ctk.CTkFrame):
             )
             self.set_status("Ошибка загрузки PDF.")
 
+    def _convert_pdf_to_images(self, file_path):
+        """Конвертирует PDF в список PIL-изображений."""
+
+        return convert_from_path(
+            file_path,
+            dpi=self.PDF_DPI,
+            poppler_path=str(POPPLER_PATH)
+        )
+
+    def _handle_empty_pdf(self):
+        """Показывает предупреждение, если PDF не дал страниц."""
+
+        messagebox.showwarning(
+            "PDF не загружен",
+            "Не удалось получить страницы из PDF-файла."
+        )
+        self.set_status("PDF не загружен.")
+        logger.warning("PDF не загружен: список страниц пуст")
+
+    def _set_loaded_pdf(self, file_path, first_page):
+        """
+        Сохраняет новый PDF в состояние раздела
+        и обновляет интерфейс.
+        """
+
+        self.pdf_path = file_path
+        self.original_image = first_page
+
+        self._save_pdf_path_to_state(file_path)
+
+        self._reset_view_state()
+        self._reset_selection_state()
+
+        self.update_image()
+        self.set_status(f"PDF загружен: {file_path}")
+
+    def _save_pdf_path_to_state(self, file_path):
+        """Сохраняет путь к PDF через AppController."""
+
+        if hasattr(self.master, "controller"):
+            self.master.controller.set_current_pdf(file_path)
+
     # =========================================================
     # ОТРИСОВКА ИЗОБРАЖЕНИЯ
     # =========================================================
 
     def update_image(self):
         """
-        Перерисовывает изображение на Canvas.
+        Перерисовывает PDF на Canvas.
 
-        Этот метод единственный отвечает за:
+        Здесь выполняется:
         - поворот;
         - масштабирование;
-        - создание ImageTk.PhotoImage;
-        - размещение изображения на Canvas.
+        - создание PhotoImage;
+        - размещение изображения в центре Canvas с учётом смещения.
         """
 
         if self.original_image is None:
             return
 
-        # 1. Поворачиваем исходную страницу.
-        # rotated_image нужен отдельно, потому что crop делается именно из него.
-        self.rotated_image = self.original_image.rotate(self.angle, expand=True)
+        self._prepare_display_image()
+        self._draw_current_image_on_canvas()
 
-        # 2. Считаем новый размер после зума.
+        # После полной перерисовки старое выделение может стать некорректным.
+        self.rect_id = None
+
+    def _prepare_display_image(self):
+        """Готовит изображение для отображения на Canvas."""
+
+        self.rotated_image = self.original_image.rotate(
+            self.angle,
+            expand=True
+        )
+
         new_width = max(1, int(self.rotated_image.width * self.zoom_factor))
         new_height = max(1, int(self.rotated_image.height * self.zoom_factor))
 
-        # 3. Создаём изображение, которое реально будет показано на Canvas.
         self.current_image = self.rotated_image.resize(
             (new_width, new_height),
-            resample=ImageTk.Image.Resampling.LANCZOS
+            resample=Image.Resampling.LANCZOS
         )
 
-        # 4. Преобразуем PIL.Image в формат, который понимает Tkinter.
         self.tk_image = ImageTk.PhotoImage(self.current_image)
 
-        # 5. Очищаем Canvas и рисуем изображение заново.
+    def _draw_current_image_on_canvas(self):
+        """Рисует текущее изображение на Canvas."""
+
         self.canvas.delete("all")
 
-        canvas_w = max(1, self.canvas.winfo_width())
-        canvas_h = max(1, self.canvas.winfo_height())
-
-        # Центр изображения = центр Canvas + пользовательское смещение.
-        center_x = canvas_w // 2 + self.offset_x
-        center_y = canvas_h // 2 + self.offset_y
+        center_x, center_y = self._get_image_center_on_canvas()
 
         self.canvas.create_image(
             center_x,
@@ -379,16 +410,20 @@ class PDFViewerFrame(ctk.CTkFrame):
             tags="image"
         )
 
-        # После полной перерисовки старое выделение теряет смысл,
-        # потому что координаты Canvas могли измениться.
-        self.rect_id = None
+    def _get_image_center_on_canvas(self):
+        """Возвращает центр изображения на Canvas с учётом смещения."""
+
+        canvas_w = max(1, self.canvas.winfo_width())
+        canvas_h = max(1, self.canvas.winfo_height())
+
+        center_x = canvas_w // 2 + self.offset_x
+        center_y = canvas_h // 2 + self.offset_y
+
+        return center_x, center_y
 
     def on_canvas_resize(self, event=None):
-        """
-        Вызывается при изменении размера Canvas.
+        """Перерисовывает изображение при изменении размера Canvas."""
 
-        Нужно для случаев, когда пользователь растянул окно приложения.
-        """
         if self.original_image is not None:
             self.update_image()
 
@@ -403,123 +438,131 @@ class PDFViewerFrame(ctk.CTkFrame):
             return
 
         self.angle = (self.angle - 90) % 360
+
         self.clear_selection()
         self.update_image()
         self.set_status(f"Поворот: {self.angle}°")
 
     def zoom_image(self, event):
-        """
-        Масштабирует изображение колесиком мыши.
-
-        На Windows используется event.delta.
-        На Linux часто используются Button-4 и Button-5.
-        """
+        """Масштабирует изображение колёсиком мыши."""
 
         if self.original_image is None:
             return
 
         old_zoom = self.zoom_factor
+        self.zoom_factor = self._calculate_new_zoom(event)
 
-        # Windows/macOS.
-        if hasattr(event, "delta") and event.delta:
-            if event.delta > 0:
-                self.zoom_factor *= self.ZOOM_STEP
-            else:
-                self.zoom_factor /= self.ZOOM_STEP
-
-        # Linux.
-        elif hasattr(event, "num"):
-            if event.num == 4:
-                self.zoom_factor *= self.ZOOM_STEP
-            elif event.num == 5:
-                self.zoom_factor /= self.ZOOM_STEP
-
-        # Ограничиваем масштаб.
-        self.zoom_factor = max(self.MIN_ZOOM, min(self.zoom_factor, self.MAX_ZOOM))
-
-        # Если масштаб реально изменился — перерисовываем.
         if self.zoom_factor != old_zoom:
             self.clear_selection()
             self.update_image()
             self.set_status(f"Масштаб: {int(self.zoom_factor * 100)}%")
 
+    def _calculate_new_zoom(self, event):
+        """Считает новый масштаб по событию колёсика мыши."""
+
+        new_zoom = self.zoom_factor
+
+        if hasattr(event, "delta") and event.delta:
+            if event.delta > 0:
+                new_zoom *= self.ZOOM_STEP
+            else:
+                new_zoom /= self.ZOOM_STEP
+
+        elif hasattr(event, "num"):
+            if event.num == 4:
+                new_zoom *= self.ZOOM_STEP
+            elif event.num == 5:
+                new_zoom /= self.ZOOM_STEP
+
+        return max(self.MIN_ZOOM, min(new_zoom, self.MAX_ZOOM))
+
     # =========================================================
-    # ОБРАБОТКА МЫШИ: ПЕРЕМЕЩЕНИЕ И ВЫДЕЛЕНИЕ
+    # МЫШЬ: ПЕРЕМЕЩЕНИЕ И ВЫДЕЛЕНИЕ
     # =========================================================
 
     def on_mouse_press(self, event):
-        """
-        Срабатывает при нажатии левой кнопки мыши.
-
-        В режиме "Перемещение" запоминает стартовую точку.
-        В режиме "Выделение" создаёт новый прямоугольник.
-        """
+        """Обрабатывает нажатие левой кнопки мыши."""
 
         if self.original_image is None:
             return
 
         current_mode = self.mode_switch.get()
 
-        if current_mode == "Перемещение":
-            self.last_mouse_x = event.x
-            self.last_mouse_y = event.y
+        if current_mode == self.MODE_PAN:
+            self._start_pan(event)
 
-        elif current_mode == "Выделение":
-            self.clear_selection()
+        elif current_mode == self.MODE_SELECT:
+            self._start_selection(event)
 
-            self.start_x = self.canvas.canvasx(event.x)
-            self.start_y = self.canvas.canvasy(event.y)
+    def _start_pan(self, event):
+        """Запоминает стартовую точку перемещения."""
 
-            self.rect_id = self.canvas.create_rectangle(
-                self.start_x,
-                self.start_y,
-                self.start_x,
-                self.start_y,
-                outline="red",
-                width=2,
-                dash=(4, 4),
-                tags="selection"
-            )
+        self.last_mouse_x = event.x
+        self.last_mouse_y = event.y
+
+    def _start_selection(self, event):
+        """Начинает выделение области."""
+
+        self.clear_selection()
+
+        self.start_x = self.canvas.canvasx(event.x)
+        self.start_y = self.canvas.canvasy(event.y)
+
+        self.rect_id = self.canvas.create_rectangle(
+            self.start_x,
+            self.start_y,
+            self.start_x,
+            self.start_y,
+            outline="red",
+            width=2,
+            dash=(4, 4),
+            tags="selection"
+        )
 
     def on_mouse_drag(self, event):
-        """
-        Срабатывает при движении мыши с зажатой левой кнопкой.
-
-        В режиме "Перемещение" двигает всё содержимое Canvas.
-        В режиме "Выделение" изменяет размер красной рамки.
-        """
+        """Обрабатывает движение мыши с зажатой левой кнопкой."""
 
         if self.original_image is None:
             return
 
         current_mode = self.mode_switch.get()
 
-        if current_mode == "Перемещение":
-            dx = event.x - self.last_mouse_x
-            dy = event.y - self.last_mouse_y
+        if current_mode == self.MODE_PAN:
+            self._drag_pan(event)
 
-            self.last_mouse_x = event.x
-            self.last_mouse_y = event.y
+        elif current_mode == self.MODE_SELECT:
+            self._drag_selection(event)
 
-            self.offset_x += dx
-            self.offset_y += dy
+    def _drag_pan(self, event):
+        """Перемещает изображение по Canvas."""
 
-            self.canvas.move("all", dx, dy)
+        dx = event.x - self.last_mouse_x
+        dy = event.y - self.last_mouse_y
 
-        elif current_mode == "Выделение":
-            if self.rect_id is None:
-                return
+        self.last_mouse_x = event.x
+        self.last_mouse_y = event.y
 
-            current_x = self.canvas.canvasx(event.x)
-            current_y = self.canvas.canvasy(event.y)
+        self.offset_x += dx
+        self.offset_y += dy
 
-            self.canvas.coords(
-                self.rect_id,
-                self.start_x,
-                self.start_y,
-                current_x,
-                current_y
-            )
+        self.canvas.move("all", dx, dy)
+
+    def _drag_selection(self, event):
+        """Изменяет размер рамки выделения."""
+
+        if self.rect_id is None:
+            return
+
+        current_x = self.canvas.canvasx(event.x)
+        current_y = self.canvas.canvasy(event.y)
+
+        self.canvas.coords(
+            self.rect_id,
+            self.start_x,
+            self.start_y,
+            current_x,
+            current_y
+        )
 
     # =========================================================
     # КОНТЕКСТНОЕ МЕНЮ
@@ -527,15 +570,28 @@ class PDFViewerFrame(ctk.CTkFrame):
 
     def show_context_menu(self, event):
         """
-        Показывает контекстное меню только если:
-        - есть выделенная область;
-        - пользователь кликнул правой кнопкой внутри этой области.
+        Показывает контекстное меню, если правый клик был внутри выделения.
         """
 
-        if self.rect_id is None:
+        if not self._is_click_inside_selection(event):
             return
 
-        x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
+        try:
+            self.context_menu.post(event.x_root, event.y_root)
+        except Exception:
+            logger.exception("Ошибка при открытии контекстного меню PDF")
+
+    def _is_click_inside_selection(self, event) -> bool:
+        """Проверяет, находится ли правый клик внутри рамки выделения."""
+
+        if self.rect_id is None:
+            return False
+
+        try:
+            x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
+        except Exception:
+            logger.exception("Ошибка при получении координат выделения")
+            return False
 
         click_x = self.canvas.canvasx(event.x)
         click_y = self.canvas.canvasy(event.y)
@@ -543,106 +599,136 @@ class PDFViewerFrame(ctk.CTkFrame):
         min_x, max_x = sorted([x1, x2])
         min_y, max_y = sorted([y1, y2])
 
-        is_inside_selection = (
+        return (
             min_x <= click_x <= max_x and
             min_y <= click_y <= max_y
         )
 
-        if is_inside_selection:
-            self.context_menu.post(event.x_root, event.y_root)
-
     # =========================================================
-    # ВЫРЕЗАНИЕ ВЫДЕЛЕННОЙ ОБЛАСТИ
+    # ВЫРЕЗАНИЕ ОБЛАСТИ
     # =========================================================
 
     def get_cropped_image(self):
         """
-        Вырезает выделенную область из PDF-изображения.
+        Вырезает выделенную область из текущего PDF-изображения.
 
-        Основная идея:
-        1. Пользователь рисует рамку на Canvas.
-        2. Canvas показывает уже увеличенное и повернутое изображение.
-        3. Нужно перевести координаты рамки обратно в координаты rotated_image.
-        4. Потом вырезать область из rotated_image.
+        Возвращает PIL.Image или None.
         """
 
-        if self.rect_id is None or self.original_image is None:
+        if not self._can_crop():
             return None
 
-        if self.current_image is None or self.rotated_image is None:
+        try:
+            crop_box = self._get_crop_box_from_selection()
+
+            if crop_box is None:
+                return None
+
+            cropped_image = self.rotated_image.crop(crop_box)
+
+            # Сохраняем поведение старого кода:
+            # возвращаем фрагмент в исходную ориентацию.
+            cropped_image = cropped_image.rotate(
+                -self.angle,
+                expand=True
+            )
+
+            return cropped_image
+
+        except Exception:
+            logger.exception("Ошибка при вырезании области PDF")
             return None
 
-        # Координаты рамки на Canvas.
+    def _can_crop(self) -> bool:
+        """Проверяет, можно ли вырезать область."""
+
+        return (
+            self.rect_id is not None
+            and self.original_image is not None
+            and self.current_image is not None
+            and self.rotated_image is not None
+        )
+
+    def _get_crop_box_from_selection(self):
+        """
+        Переводит координаты рамки Canvas в координаты rotated_image.
+        """
+
         x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
 
-        canvas_w = max(1, self.canvas.winfo_width())
-        canvas_h = max(1, self.canvas.winfo_height())
+        image_left, image_top = self._get_image_left_top_on_canvas()
 
-        # Левый верхний угол картинки на Canvas.
-        image_left = canvas_w / 2 + self.offset_x - self.current_image.width / 2
-        image_top = canvas_h / 2 + self.offset_y - self.current_image.height / 2
-
-        # Перевод координат Canvas → координаты изображения без зума.
         crop_x1 = (x1 - image_left) / self.zoom_factor
         crop_y1 = (y1 - image_top) / self.zoom_factor
         crop_x2 = (x2 - image_left) / self.zoom_factor
         crop_y2 = (y2 - image_top) / self.zoom_factor
 
-        # Если рамку тянули справа налево или снизу вверх,
-        # координаты нужно отсортировать.
         crop_x1, crop_x2 = sorted([crop_x1, crop_x2])
         crop_y1, crop_y2 = sorted([crop_y1, crop_y2])
 
-        # Обрезаем координаты по границам изображения.
-        crop_x1 = max(0, min(crop_x1, self.rotated_image.width))
-        crop_y1 = max(0, min(crop_y1, self.rotated_image.height))
-        crop_x2 = max(0, min(crop_x2, self.rotated_image.width))
-        crop_y2 = max(0, min(crop_y2, self.rotated_image.height))
-
-        # Переводим в int, потому что PIL crop работает с пикселями.
-        crop_box = (
-            int(round(crop_x1)),
-            int(round(crop_y1)),
-            int(round(crop_x2)),
-            int(round(crop_y2))
+        crop_box = self._clamp_crop_box(
+            crop_x1,
+            crop_y1,
+            crop_x2,
+            crop_y2
         )
 
-        left, top, right, bottom = crop_box
-
-        # Защита от слишком маленькой или пустой области.
-        if left >= right or top >= bottom:
+        if not self._is_valid_crop_box(crop_box):
             return None
 
-        cropped_image = self.rotated_image.crop(crop_box)
+        return crop_box
 
-        # Возвращаем фрагмент в исходную ориентацию.
-        # Если PDF был повернут для удобства просмотра, OCR лучше дать
-        # фрагмент в нормальном положении.
-        cropped_image = cropped_image.rotate(-self.angle, expand=True)
+    def _get_image_left_top_on_canvas(self):
+        """Возвращает левый верхний угол изображения на Canvas."""
 
-        return cropped_image
+        canvas_w = max(1, self.canvas.winfo_width())
+        canvas_h = max(1, self.canvas.winfo_height())
+
+        image_left = canvas_w / 2 + self.offset_x - self.current_image.width / 2
+        image_top = canvas_h / 2 + self.offset_y - self.current_image.height / 2
+
+        return image_left, image_top
+
+    def _clamp_crop_box(self, x1, y1, x2, y2):
+        """Ограничивает crop-координаты границами изображения."""
+
+        x1 = max(0, min(x1, self.rotated_image.width))
+        y1 = max(0, min(y1, self.rotated_image.height))
+        x2 = max(0, min(x2, self.rotated_image.width))
+        y2 = max(0, min(y2, self.rotated_image.height))
+
+        return (
+            int(round(x1)),
+            int(round(y1)),
+            int(round(x2)),
+            int(round(y2))
+        )
+
+    def _is_valid_crop_box(self, crop_box) -> bool:
+        """Проверяет, что crop-область не пустая."""
+
+        left, top, right, bottom = crop_box
+        return left < right and top < bottom
 
     # =========================================================
-    # ОТПРАВКА В OCR
+    # OCR
     # =========================================================
+
     def get_selected_ocr_mode(self):
         """
-        Возвращает внутреннее название выбранного OCR-режима.
+        Возвращает внутренний OCR-режим.
 
-        Пользователь видит:
-            "Мелкий текст"
-
-        OCRService получает:
-            "small_text"
+        Например:
+            "Мелкий текст" -> "small_text"
         """
 
         visible_mode = self.ocr_mode_var.get()
-        return self.ocr_mode_map.get(visible_mode, "default")
+        return self.OCR_MODE_MAP.get(visible_mode, "default")
 
     def send_to_ocr(self):
         """
-        Вырезает выделенную область, запускает OCR в выбранном режиме
-        и передаёт результат в OCR-раздел через AppController.
+        Вырезает выделенную область, запускает OCR
+        и отправляет результат в OCR-раздел через AppController.
         """
 
         cropped_image = self.get_cropped_image()
@@ -652,43 +738,30 @@ class PDFViewerFrame(ctk.CTkFrame):
                 "Нет области",
                 "Не удалось вырезать область. Проверьте, что выделение находится на изображении."
             )
-            logger.warning("OCR не запущен: не удалось вырезать выделенную область.")
+            logger.warning("OCR не запущен: не удалось вырезать выделенную область")
             return
 
         selected_mode = self.get_selected_ocr_mode()
         visible_mode = self.ocr_mode_var.get()
 
         try:
-            self.configure(cursor="watch")
-            self.update_idletasks()
+            self._set_wait_cursor(True)
 
-            logger.info(
-                "Запущено OCR из PDF. mode=%s, visible_mode=%s, image_size=%s",
-                selected_mode,
-                visible_mode,
-                cropped_image.size
-            )
-
-            result = self.ocr_service.recognize_from_pil(
-                pil_image=cropped_image,
-                settings=OCRSettings(
-                    mode=selected_mode,
-                    languages=OCR_LANGUAGES
-                )
+            result = self._recognize_cropped_image(
+                cropped_image=cropped_image,
+                selected_mode=selected_mode,
+                visible_mode=visible_mode
             )
 
             if not result.success:
-                logger.error(
-                    "OCR завершился ошибкой. mode=%s, error=%s",
-                    selected_mode,
-                    result.error_message
-                )
-
-                messagebox.showerror(
-                    "Ошибка OCR",
-                    f"Не удалось распознать текст.\n\nРежим: {visible_mode}\nОшибка: {result.error_message}"
-                )
+                self._handle_ocr_error(result, visible_mode)
                 return
+
+            self._send_ocr_result_to_controller(
+                cropped_image=cropped_image,
+                recognized_text=result.text,
+                selected_mode=selected_mode
+            )
 
             logger.info(
                 "OCR успешно завершён. mode=%s, text_length=%s",
@@ -696,20 +769,74 @@ class PDFViewerFrame(ctk.CTkFrame):
                 len(result.text)
             )
 
-            # Передаём результат через AppController.
-            self.master.controller.show_ocr_result(
-                image=cropped_image,
-                text=result.text,
-                source=f"pdf_selection:{selected_mode}"
-            )
-
         except Exception:
             logger.exception("Ошибка при OCR из PDF")
-
             messagebox.showerror(
                 "Ошибка OCR",
                 "Произошла ошибка во время распознавания текста. Подробности в app.log."
             )
 
         finally:
+            self._set_wait_cursor(False)
+
+    def _recognize_cropped_image(self, cropped_image, selected_mode, visible_mode):
+        """Запускает OCRService для выделенной области."""
+
+        logger.info(
+            "Запущено OCR из PDF. mode=%s, visible_mode=%s, image_size=%s",
+            selected_mode,
+            visible_mode,
+            cropped_image.size
+        )
+
+        return self.ocr_service.recognize_from_pil(
+            pil_image=cropped_image,
+            settings=OCRSettings(
+                mode=selected_mode,
+                languages=OCR_LANGUAGES
+            )
+        )
+
+    def _handle_ocr_error(self, result, visible_mode):
+        """Обрабатывает ошибку OCR."""
+
+        logger.error(
+            "OCR завершился ошибкой. mode=%s, error=%s",
+            result.mode,
+            result.error_message
+        )
+
+        messagebox.showerror(
+            "Ошибка OCR",
+            (
+                "Не удалось распознать текст.\n\n"
+                f"Режим: {visible_mode}\n"
+                f"Ошибка: {result.error_message}"
+            )
+        )
+
+    def _send_ocr_result_to_controller(self, cropped_image, recognized_text, selected_mode):
+        """Передаёт OCR-результат в AppController."""
+
+        if not hasattr(self.master, "controller"):
+            logger.warning("AppController не найден. OCR-результат не отправлен.")
+            messagebox.showerror(
+                "Ошибка",
+                "Не удалось отправить результат OCR: контроллер приложения не найден."
+            )
+            return
+
+        self.master.controller.show_ocr_result(
+            image=cropped_image,
+            text=recognized_text,
+            source=f"pdf_selection:{selected_mode}"
+        )
+
+    def _set_wait_cursor(self, enabled: bool):
+        """Включает или выключает курсор ожидания."""
+
+        if enabled:
+            self.configure(cursor="watch")
+            self.update_idletasks()
+        else:
             self.configure(cursor="")
