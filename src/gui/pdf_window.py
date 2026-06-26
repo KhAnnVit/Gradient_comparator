@@ -7,8 +7,11 @@ from pdf2image import convert_from_path
 
 from config import POPPLER_PATH, OCR_LANGUAGES
 from src.models.ocr_models import OCRSettings
+from src.models.image_crop_models import ImageCropRequest
 from src.services.ocr_service import OCRService
+from src.services.image_crop_service import ImageCropService
 from src.utils.logger import logger
+
 
 
 class PDFViewerFrame(ctk.CTkFrame):
@@ -49,6 +52,7 @@ class PDFViewerFrame(ctk.CTkFrame):
         super().__init__(master)
 
         self.ocr_service = OCRService()
+        self.image_crop_service = ImageCropService()
 
         self._init_state()
         self._configure_grid()
@@ -612,103 +616,62 @@ class PDFViewerFrame(ctk.CTkFrame):
         """
         Вырезает выделенную область из текущего PDF-изображения.
 
-        Возвращает PIL.Image или None.
+        GUI-класс только собирает данные из Canvas и текущего состояния.
+        Сама математика crop находится в ImageCropService.
         """
 
         if not self._can_crop():
             return None
 
         try:
-            crop_box = self._get_crop_box_from_selection()
+            selection_coords = tuple(self.canvas.coords(self.rect_id))
 
-            if crop_box is None:
-                return None
-
-            cropped_image = self.rotated_image.crop(crop_box)
-
-            # Сохраняем поведение старого кода:
-            # возвращаем фрагмент в исходную ориентацию.
-            cropped_image = cropped_image.rotate(
-                -self.angle,
-                expand=True
+            request = ImageCropRequest(
+                source_image=self.rotated_image,
+                selection_coords=selection_coords,
+                canvas_width=max(1, self.canvas.winfo_width()),
+                canvas_height=max(1, self.canvas.winfo_height()),
+                displayed_image_width=self.current_image.width,
+                displayed_image_height=self.current_image.height,
+                offset_x=self.offset_x,
+                offset_y=self.offset_y,
+                zoom_factor=self.zoom_factor,
+                angle=self.angle,
+                restore_original_orientation=True
             )
 
-            return cropped_image
+            result = self.image_crop_service.crop_from_canvas_selection(request)
+
+            if not result.success:
+                logger.warning(
+                    "Не удалось вырезать PDF-область: %s",
+                    result.error_message
+                )
+                return None
+
+            logger.info(
+                "PDF-область вырезана. crop_box=%s, image_size=%s",
+                result.crop_box,
+                result.image.size if result.image else None
+            )
+
+            return result.image
 
         except Exception:
-            logger.exception("Ошибка при вырезании области PDF")
+            logger.exception("Ошибка при подготовке данных для crop PDF")
             return None
 
     def _can_crop(self) -> bool:
-        """Проверяет, можно ли вырезать область."""
-
-        return (
-            self.rect_id is not None
-            and self.original_image is not None
-            and self.current_image is not None
-            and self.rotated_image is not None
-        )
-
-    def _get_crop_box_from_selection(self):
         """
-        Переводит координаты рамки Canvas в координаты rotated_image.
+        Проверяет, есть ли всё необходимое для вырезания области.
         """
 
-        x1, y1, x2, y2 = self.canvas.coords(self.rect_id)
-
-        image_left, image_top = self._get_image_left_top_on_canvas()
-
-        crop_x1 = (x1 - image_left) / self.zoom_factor
-        crop_y1 = (y1 - image_top) / self.zoom_factor
-        crop_x2 = (x2 - image_left) / self.zoom_factor
-        crop_y2 = (y2 - image_top) / self.zoom_factor
-
-        crop_x1, crop_x2 = sorted([crop_x1, crop_x2])
-        crop_y1, crop_y2 = sorted([crop_y1, crop_y2])
-
-        crop_box = self._clamp_crop_box(
-            crop_x1,
-            crop_y1,
-            crop_x2,
-            crop_y2
-        )
-
-        if not self._is_valid_crop_box(crop_box):
-            return None
-
-        return crop_box
-
-    def _get_image_left_top_on_canvas(self):
-        """Возвращает левый верхний угол изображения на Canvas."""
-
-        canvas_w = max(1, self.canvas.winfo_width())
-        canvas_h = max(1, self.canvas.winfo_height())
-
-        image_left = canvas_w / 2 + self.offset_x - self.current_image.width / 2
-        image_top = canvas_h / 2 + self.offset_y - self.current_image.height / 2
-
-        return image_left, image_top
-
-    def _clamp_crop_box(self, x1, y1, x2, y2):
-        """Ограничивает crop-координаты границами изображения."""
-
-        x1 = max(0, min(x1, self.rotated_image.width))
-        y1 = max(0, min(y1, self.rotated_image.height))
-        x2 = max(0, min(x2, self.rotated_image.width))
-        y2 = max(0, min(y2, self.rotated_image.height))
-
         return (
-            int(round(x1)),
-            int(round(y1)),
-            int(round(x2)),
-            int(round(y2))
+                self.rect_id is not None
+                and self.original_image is not None
+                and self.current_image is not None
+                and self.rotated_image is not None
         )
-
-    def _is_valid_crop_box(self, crop_box) -> bool:
-        """Проверяет, что crop-область не пустая."""
-
-        left, top, right, bottom = crop_box
-        return left < right and top < bottom
 
     # =========================================================
     # OCR
