@@ -198,6 +198,18 @@ class AppController:
 
         logger.info("Текущий Excel сохранён в состоянии: %s", excel_path)
 
+    def set_current_excel_sheet(self, sheet_name: str):
+        """
+        Сохраняет название текущего выбранного листа Excel в AppState.
+        """
+
+        self.state.current_excel_sheet = sheet_name
+
+        logger.info(
+            "Текущий лист Excel сохранён в состоянии: %s",
+            sheet_name
+        )
+
     def set_current_excel_cell(self, row: int, col: int, value: str):
         """
         Сохраняет информацию о текущей выбранной ячейке Excel.
