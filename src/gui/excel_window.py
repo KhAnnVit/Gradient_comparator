@@ -16,8 +16,10 @@ class ExcelViewerFrame(ctk.CTkFrame):
     - загружать Excel-файл;
     - выбирать лист книги;
     - отображать таблицу через tksheet;
-    - выбирать ячейку;
-    - отправлять значение ячейки в поля сравнения;
+    - выбирать одну ячейку;
+    - выделять несколько ячеек;
+    - отправлять одну ячейку в поле сравнения;
+    - отправлять несколько выделенных ячеек в поле сравнения одним блоком;
     - открывать ячейку в отдельном окне для просмотра/редактирования.
     """
 
@@ -66,10 +68,12 @@ class ExcelViewerFrame(ctk.CTkFrame):
 
     def _bind_all_proxy(self, *args, **kwargs):
         """Прокси для bind_all, который использует tksheet."""
+
         return tk.Frame.bind_all(self, *args, **kwargs)
 
     def _unbind_all_proxy(self, *args, **kwargs):
         """Прокси для unbind_all, который использует tksheet."""
+
         return tk.Frame.unbind_all(self, *args, **kwargs)
 
     # =========================================================
@@ -88,7 +92,13 @@ class ExcelViewerFrame(ctk.CTkFrame):
         """Создаёт верхнюю панель управления."""
 
         self.top_panel = ctk.CTkFrame(self, height=40)
-        self.top_panel.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
+        self.top_panel.grid(
+            row=0,
+            column=0,
+            sticky="ew",
+            padx=10,
+            pady=5
+        )
 
         self.btn_load = ctk.CTkButton(
             self.top_panel,
@@ -120,7 +130,7 @@ class ExcelViewerFrame(ctk.CTkFrame):
             command=self.zoom_in,
             width=40
         )
-        self.btn_zoom_in.pack(side="left", padx=5, pady=5)
+        self.btn_zoom_in.pack(side="left", padx=(15, 5), pady=5)
 
         self.btn_zoom_out = ctk.CTkButton(
             self.top_panel,
@@ -137,6 +147,22 @@ class ExcelViewerFrame(ctk.CTkFrame):
             width=60
         )
         self.btn_zoom_reset.pack(side="left", padx=5, pady=5)
+
+        self.btn_send_selected_1 = ctk.CTkButton(
+            self.top_panel,
+            text="Выделенное → Поле 1",
+            command=lambda: self.send_selected_cells(1),
+            width=160
+        )
+        self.btn_send_selected_1.pack(side="left", padx=(20, 5), pady=5)
+
+        self.btn_send_selected_2 = ctk.CTkButton(
+            self.top_panel,
+            text="Выделенное → Поле 2",
+            command=lambda: self.send_selected_cells(2),
+            width=160
+        )
+        self.btn_send_selected_2.pack(side="left", padx=5, pady=5)
 
     def _create_table_container(self):
         """Создаёт контейнер для таблицы."""
@@ -183,18 +209,10 @@ class ExcelViewerFrame(ctk.CTkFrame):
         self.sheet.grid(row=0, column=0, sticky="nsew")
 
         self.sheet.enable_bindings(
-            "single_select",
-            "toggle_select",
-            "column_select",
-            "row_select",
-            "drag_select",
-            "ctrl_a_select_all",
-            "copy",
-            "arrowkeys",
-            "mousewheel",
-            "rc_popup_menu",
-            menu=True
+            "all"
         )
+
+        self.after(100, self._setup_context_menu)
 
     def _bind_events(self):
         """Привязывает события таблицы."""
@@ -211,14 +229,22 @@ class ExcelViewerFrame(ctk.CTkFrame):
 
         try:
             mt = self.sheet.MT
+
             mt.empty_rc_popup_menu = True
             mt.extra_rc_func = self._on_right_click
+
             mt.extra_table_rc_menu_funcs = {
-                "📋 Вся ячейка → Поле 1": {
+                "📋 Текущая ячейка → Поле 1": {
                     "command": lambda: self.send_full_cell(1)
                 },
-                "📋 Вся ячейка → Поле 2": {
+                "📋 Текущая ячейка → Поле 2": {
                     "command": lambda: self.send_full_cell(2)
+                },
+                "📋 Выделенные ячейки → Поле 1": {
+                    "command": lambda: self.send_selected_cells(1)
+                },
+                "📋 Выделенные ячейки → Поле 2": {
+                    "command": lambda: self.send_selected_cells(2)
                 },
             }
 
@@ -255,7 +281,10 @@ class ExcelViewerFrame(ctk.CTkFrame):
         """
 
         file_path = filedialog.askopenfilename(
-            filetypes=[("Excel Files", "*.xlsx *.xls")]
+            filetypes=[
+                ("Excel Files", "*.xlsx *.xls"),
+                ("All Files", "*.*"),
+            ]
         )
 
         if not file_path:
@@ -284,9 +313,7 @@ class ExcelViewerFrame(ctk.CTkFrame):
         )
 
     def _handle_excel_load_error(self, error_message):
-        """
-        Показывает ошибку загрузки Excel-файла.
-        """
+        """Показывает ошибку загрузки Excel-файла."""
 
         logger.warning("Excel-файл не загружен: %s", error_message)
 
@@ -343,6 +370,7 @@ class ExcelViewerFrame(ctk.CTkFrame):
         self.df = result.dataframe
 
         self._save_sheet_name_to_state(result.sheet_name)
+
         self._display_sheet_data(
             data=result.data,
             headers=result.headers,
@@ -357,9 +385,7 @@ class ExcelViewerFrame(ctk.CTkFrame):
         )
 
     def _handle_sheet_load_error(self, sheet_name, error_message):
-        """
-        Показывает ошибку загрузки листа Excel.
-        """
+        """Показывает ошибку загрузки листа Excel."""
 
         logger.warning(
             "Excel-лист не загружен. sheet=%s, error=%s",
@@ -379,8 +405,8 @@ class ExcelViewerFrame(ctk.CTkFrame):
         """Сохраняет текущий лист через AppController."""
 
         if (
-                hasattr(self.master, "controller")
-                and hasattr(self.master.controller, "set_current_excel_sheet")
+            hasattr(self.master, "controller")
+            and hasattr(self.master.controller, "set_current_excel_sheet")
         ):
             self.master.controller.set_current_excel_sheet(sheet_name)
 
@@ -439,13 +465,12 @@ class ExcelViewerFrame(ctk.CTkFrame):
         """Срабатывает при выделении ячейки."""
 
         try:
-            selected = self.sheet.get_selected_cells()
+            selected_coords = self._get_selected_cell_coords()
 
-            if not selected:
+            if not selected_coords:
                 return
 
-            selected_list = list(selected)
-            row, col = selected_list[-1]
+            row, col = selected_coords[-1]
 
             value = self.sheet.get_cell_data(row, col)
 
@@ -514,7 +539,11 @@ class ExcelViewerFrame(ctk.CTkFrame):
             and self.current_col is not None
         ):
             self.df.iloc[self.current_row, self.current_col] = new_value
-            self.sheet.set_cell_data(self.current_row, self.current_col, new_value)
+            self.sheet.set_cell_data(
+                self.current_row,
+                self.current_col,
+                new_value
+            )
 
             self.current_cell_value = new_value
             self._save_current_cell_to_state()
@@ -539,7 +568,9 @@ class ExcelViewerFrame(ctk.CTkFrame):
 
         self.on_cell_select()
 
-        if not self.current_cell_value:
+        clean_text = self._clean_excel_cell_text(self.current_cell_value)
+
+        if not clean_text:
             messagebox.showwarning(
                 "Ячейка не выбрана",
                 "Выберите ячейку с текстом."
@@ -548,11 +579,306 @@ class ExcelViewerFrame(ctk.CTkFrame):
             return
 
         self._send_text_to_compare(
-            text=self.current_cell_value,
-            field_num=field_num
+            text=clean_text,
+            field_num=field_num,
+            source="excel_cell"
         )
 
-    def _send_text_to_compare(self, text, field_num):
+    def send_selected_cells(self, field_num):
+        """
+        Отправляет все выделенные ячейки Excel в поле сравнения.
+
+        Несколько ячеек собираются в текстовые блоки.
+        Каждый блок отделяется пустой строкой, чтобы сравнение
+        могло искать эти блоки внутри OCR-текста упаковки.
+        """
+
+        selected_text = self._build_selected_cells_text()
+
+        if not selected_text:
+            messagebox.showwarning(
+                "Ячейки не выбраны",
+                "Выделите одну или несколько ячеек с текстом."
+            )
+            logger.warning("Попытка отправить пустое Excel-выделение в сравнение")
+            return
+
+        self._send_text_to_compare(
+            text=selected_text,
+            field_num=field_num,
+            source="excel_selected"
+        )
+
+        logger.info(
+            "Выделенные Excel-ячейки отправлены в поле сравнения %s. Длина: %s",
+            field_num,
+            len(selected_text)
+        )
+
+    def _build_selected_cells_text(self) -> str:
+        """
+        Собирает текст из выделенных ячеек.
+
+        Логика:
+        - если выделена одна ячейка, отправляем её текст;
+        - если выделено несколько ячеек, группируем их по строкам;
+        - если в строке несколько ячеек, объединяем их в один блок;
+        - разные строки отделяем пустой строкой.
+
+        Пример:
+            Состав | Aqua, PVP
+            Изготовитель | ООО Ромашка
+
+        Превратится в:
+            Состав: Aqua, PVP
+
+            Изготовитель: ООО Ромашка
+        """
+
+        selected_cells = self._get_selected_cell_coords()
+
+        if not selected_cells:
+            self.on_cell_select()
+
+            if self.current_cell_value:
+                return self._clean_excel_cell_text(self.current_cell_value)
+
+            return ""
+
+        rows = {}
+
+        for row, col in selected_cells:
+            try:
+                value = self.sheet.get_cell_data(row, col)
+            except Exception:
+                logger.exception(
+                    "Не удалось получить данные Excel-ячейки. row=%s, col=%s",
+                    row,
+                    col
+                )
+                continue
+
+            clean_value = self._clean_excel_cell_text(value)
+
+            if not clean_value:
+                continue
+
+            if row not in rows:
+                rows[row] = []
+
+            rows[row].append((col, clean_value))
+
+        blocks = []
+
+        for row in sorted(rows):
+            row_values = [
+                value
+                for col, value in sorted(rows[row], key=lambda item: item[0])
+            ]
+
+            if not row_values:
+                continue
+
+            block_text = self._build_text_block_from_row_values(row_values)
+
+            if block_text:
+                blocks.append(block_text)
+
+        return "\n\n".join(blocks).strip()
+
+    def _build_text_block_from_row_values(self, row_values):
+        """
+        Собирает один текстовый блок из значений одной строки Excel.
+
+        Если в строке несколько ячеек, первая ячейка считается заголовком,
+        а остальные — значением.
+
+        Это удобно для таблиц вида:
+            Состав | Aqua, PVP
+            Изготовитель | ООО ...
+        """
+
+        if not row_values:
+            return ""
+
+        if len(row_values) == 1:
+            return row_values[0].strip()
+
+        first_value = row_values[0].strip().rstrip(":")
+        other_values = " ".join(row_values[1:]).strip()
+
+        if other_values and len(first_value) <= 80:
+            return f"{first_value}: {other_values}".strip()
+
+        return " ".join(row_values).strip()
+
+    def _get_selected_cell_coords(self) -> list[tuple[int, int]]:
+        """
+        Возвращает координаты выделенных ячеек.
+
+        Учитывает:
+        - выделение отдельных ячеек;
+        - выделение диапазона;
+        - выделение строк;
+        - выделение колонок.
+
+        Метод сделан с защитой, потому что разные версии tksheet
+        могут немного отличаться по API.
+        """
+
+        coords = set()
+
+        coords.update(self._get_selected_cells_directly())
+        coords.update(self._get_selected_cells_from_rows())
+        coords.update(self._get_selected_cells_from_columns())
+
+        if not coords:
+            coords.update(self._get_currently_selected_cell_fallback())
+
+        row_count, col_count = self._get_sheet_dimensions()
+
+        filtered_coords = [
+            (row, col)
+            for row, col in coords
+            if 0 <= row < row_count and 0 <= col < col_count
+        ]
+
+        return sorted(filtered_coords, key=lambda item: (item[0], item[1]))
+
+    def _get_selected_cells_directly(self) -> set[tuple[int, int]]:
+        """
+        Получает выделенные ячейки напрямую через tksheet.
+        """
+
+        coords = set()
+
+        try:
+            selected_cells = self.sheet.get_selected_cells()
+
+            for cell in selected_cells:
+                if isinstance(cell, tuple) and len(cell) >= 2:
+                    row, col = cell[0], cell[1]
+                    coords.add((int(row), int(col)))
+
+        except Exception:
+            logger.debug(
+                "Не удалось получить selected_cells через get_selected_cells",
+                exc_info=True
+            )
+
+        return coords
+
+    def _get_selected_cells_from_rows(self) -> set[tuple[int, int]]:
+        """
+        Получает ячейки, если пользователь выделил строки.
+        """
+
+        coords = set()
+
+        row_count, col_count = self._get_sheet_dimensions()
+
+        try:
+            if not hasattr(self.sheet, "get_selected_rows"):
+                return coords
+
+            selected_rows = self.sheet.get_selected_rows()
+
+            for row in selected_rows:
+                for col in range(col_count):
+                    coords.add((int(row), col))
+
+        except Exception:
+            logger.debug(
+                "Не удалось получить selected_rows через get_selected_rows",
+                exc_info=True
+            )
+
+        return coords
+
+    def _get_selected_cells_from_columns(self) -> set[tuple[int, int]]:
+        """
+        Получает ячейки, если пользователь выделил колонки.
+        """
+
+        coords = set()
+
+        row_count, col_count = self._get_sheet_dimensions()
+
+        try:
+            if not hasattr(self.sheet, "get_selected_columns"):
+                return coords
+
+            selected_columns = self.sheet.get_selected_columns()
+
+            for col in selected_columns:
+                for row in range(row_count):
+                    coords.add((row, int(col)))
+
+        except Exception:
+            logger.debug(
+                "Не удалось получить selected_columns через get_selected_columns",
+                exc_info=True
+            )
+
+        return coords
+
+    def _get_currently_selected_cell_fallback(self) -> set[tuple[int, int]]:
+        """
+        Запасной вариант: если tksheet не вернул выделение,
+        используем текущую ячейку.
+        """
+
+        coords = set()
+
+        if self.current_row is not None and self.current_col is not None:
+            coords.add((self.current_row, self.current_col))
+
+        return coords
+
+    def _get_sheet_dimensions(self) -> tuple[int, int]:
+        """
+        Возвращает размеры текущей таблицы tksheet.
+        """
+
+        try:
+            data = self.sheet.get_sheet_data()
+
+            row_count = len(data)
+            col_count = max(
+                (len(row) for row in data),
+                default=0
+            )
+
+            return row_count, col_count
+
+        except Exception:
+            logger.exception("Не удалось получить размеры Excel-таблицы")
+            return 0, 0
+
+    def _clean_excel_cell_text(self, value) -> str:
+        """
+        Аккуратно очищает текст ячейки перед отправкой в сравнение.
+        """
+
+        if value is None:
+            return ""
+
+        text = str(value)
+
+        text = text.replace("\r\n", "\n")
+        text = text.replace("\r", "\n")
+
+        clean_lines = []
+
+        for line in text.split("\n"):
+            clean_line = " ".join(line.split())
+
+            if clean_line:
+                clean_lines.append(clean_line)
+
+        return "\n".join(clean_lines).strip()
+
+    def _send_text_to_compare(self, text, field_num, source="excel"):
         """
         Отправляет текст в поле сравнения через AppController.
         """
@@ -564,12 +890,13 @@ class ExcelViewerFrame(ctk.CTkFrame):
         self.master.controller.send_text_to_compare(
             text=text,
             field_num=field_num,
-            source="excel"
+            source=source
         )
 
         logger.info(
-            "Текст из Excel отправлен в поле сравнения %s. Длина: %s",
+            "Текст из Excel отправлен в поле сравнения %s. Источник=%s. Длина: %s",
             field_num,
+            source,
             len(text)
         )
 
@@ -740,7 +1067,8 @@ class CellEditWindow(ctk.CTkToplevel):
 
         self.parent_frame._send_text_to_compare(
             text=selected_text,
-            field_num=field_num
+            field_num=field_num,
+            source="excel_cell_selection"
         )
 
     def _send_full_text(self, field_num):
@@ -758,7 +1086,8 @@ class CellEditWindow(ctk.CTkToplevel):
 
         self.parent_frame._send_text_to_compare(
             text=full_text,
-            field_num=field_num
+            field_num=field_num,
+            source="excel_cell_window"
         )
 
     # =========================================================
