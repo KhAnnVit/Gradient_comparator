@@ -13,13 +13,32 @@ class CompareSection(ctk.CTkFrame):
     """
     Третий раздел приложения: сравнение двух текстов.
 
-    Основная идея новой версии:
-    - по умолчанию искать самый похожий блок между двумя текстами;
-    - не считать лишние блоки до/после найденного участка ошибкой;
-    - оставить возможность строгого сравнения всего текста;
-    - оставить сравнение без учёта порядка слов;
-    - оставить отдельный режим сравнения составов.
+    Основная идея:
+    - обычное сравнение всего текста;
+    - сравнение без учёта порядка слов;
+    - сравнение составов по ингредиентам;
+    - поиск нескольких похожих последовательных блоков.
+
+    Новый режим похожих блоков:
+    - не опирается на строки и абзацы;
+    - режет текст на токены;
+    - ищет совпадающие последовательности токенов;
+    - соседние совпадения объединяет в один блок, если порядок одинаковый;
+    - если порядок изменился, создаёт отдельный цветной блок;
+    - различия внутри найденного блока подсвечивает красным;
+    - текст без пары подсвечивает красным.
     """
+
+    SEQUENCE_BLOCK_COLORS = [
+        "#dbeafe",  # голубой
+        "#dcfce7",  # зелёный
+        "#fef3c7",  # жёлтый
+        "#fce7f3",  # розовый
+        "#ede9fe",  # фиолетовый
+        "#ccfbf1",  # бирюзовый
+        "#ffedd5",  # оранжевый
+        "#e0e7ff",  # синий
+    ]
 
     def __init__(self, master):
         super().__init__(master)
@@ -37,38 +56,22 @@ class CompareSection(ctk.CTkFrame):
     # =========================================================
 
     def _configure_grid(self):
-        """
-        Настраивает главную сетку раздела.
-        """
+        """Настраивает главную сетку раздела."""
 
         self.grid_rowconfigure(2, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
     def _create_settings_variables(self):
-        """
-        Создаёт переменные настроек сравнения.
-        """
+        """Создаёт переменные настроек сравнения."""
 
-        # OCR часто ломает переносы и пробелы, поэтому это включено.
         self.ignore_whitespace_var = tk.BooleanVar(value=True)
-
-        # AQUA и aqua по умолчанию считаем одинаковыми.
         self.case_sensitive_var = tk.BooleanVar(value=False)
-
-        # Пунктуацию по умолчанию не игнорируем.
-        # Пользователь может включить это вручную.
         self.ignore_punctuation_var = tk.BooleanVar(value=False)
-
-        # Если включено, слова сравниваются как набор,
-        # но внутри найденного похожего блока.
         self.ignore_word_order_var = tk.BooleanVar(value=False)
 
-        # Главное новое поведение:
-        # ищем похожий блок, а лишние части текста не считаем ошибками.
+        # Теперь этот режим ищет не один блок, а несколько последовательных блоков.
         self.find_similar_block_var = tk.BooleanVar(value=True)
 
-        # Совпадения зелёным по умолчанию не подсвечиваем,
-        # чтобы экран не был перегружен.
         self.show_matches_var = tk.BooleanVar(value=False)
 
     # =========================================================
@@ -76,9 +79,7 @@ class CompareSection(ctk.CTkFrame):
     # =========================================================
 
     def _create_widgets(self):
-        """
-        Создаёт все элементы интерфейса.
-        """
+        """Создаёт все элементы интерфейса."""
 
         self._create_title()
         self._create_settings_panel()
@@ -87,9 +88,7 @@ class CompareSection(ctk.CTkFrame):
         self._create_result_label()
 
     def _create_title(self):
-        """
-        Создаёт заголовок раздела.
-        """
+        """Создаёт заголовок раздела."""
 
         self.title_label = ctk.CTkLabel(
             self,
@@ -104,9 +103,7 @@ class CompareSection(ctk.CTkFrame):
         )
 
     def _create_settings_panel(self):
-        """
-        Создаёт панель настроек сравнения.
-        """
+        """Создаёт панель настроек сравнения."""
 
         self.settings_frame = ctk.CTkFrame(self)
         self.settings_frame.grid(
@@ -167,7 +164,7 @@ class CompareSection(ctk.CTkFrame):
 
         self.find_similar_block_checkbox = ctk.CTkCheckBox(
             self.settings_frame,
-            text="Искать похожий блок",
+            text="Искать похожие блоки",
             variable=self.find_similar_block_var,
             command=self.clear_highlights
         )
@@ -181,7 +178,7 @@ class CompareSection(ctk.CTkFrame):
 
         self.ignore_word_order_checkbox = ctk.CTkCheckBox(
             self.settings_frame,
-            text="Не учитывать порядок слов",
+            text="Не учитывать порядок слов внутри сравнения",
             variable=self.ignore_word_order_var,
             command=self.clear_highlights
         )
@@ -222,9 +219,7 @@ class CompareSection(ctk.CTkFrame):
         )
 
     def _create_text_fields(self):
-        """
-        Создаёт два текстовых поля.
-        """
+        """Создаёт два текстовых поля."""
 
         self.texts_frame = ctk.CTkFrame(self)
         self.texts_frame.grid(
@@ -348,9 +343,7 @@ class CompareSection(ctk.CTkFrame):
         )
 
     def _create_bottom_panel(self):
-        """
-        Создаёт нижнюю панель с кнопками сравнения.
-        """
+        """Создаёт нижнюю панель с кнопками сравнения."""
 
         self.bottom_panel = ctk.CTkFrame(self)
         self.bottom_panel.grid(
@@ -361,9 +354,8 @@ class CompareSection(ctk.CTkFrame):
             pady=(0, 5)
         )
 
-        self.bottom_panel.grid_columnconfigure(0, weight=1)
-        self.bottom_panel.grid_columnconfigure(1, weight=1)
-        self.bottom_panel.grid_columnconfigure(2, weight=1)
+        for column_index in range(4):
+            self.bottom_panel.grid_columnconfigure(column_index, weight=1)
 
         self.btn_compare = ctk.CTkButton(
             self.bottom_panel,
@@ -380,6 +372,21 @@ class CompareSection(ctk.CTkFrame):
             pady=10
         )
 
+        self.btn_compare_blocks = ctk.CTkButton(
+            self.bottom_panel,
+            text="Сравнить блоками",
+            command=self.compare_as_sequence_blocks,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=40
+        )
+        self.btn_compare_blocks.grid(
+            row=0,
+            column=1,
+            sticky="ew",
+            padx=8,
+            pady=10
+        )
+
         self.btn_compare_composition = ctk.CTkButton(
             self.bottom_panel,
             text="Сравнить как состав",
@@ -389,7 +396,7 @@ class CompareSection(ctk.CTkFrame):
         )
         self.btn_compare_composition.grid(
             row=0,
-            column=1,
+            column=2,
             sticky="ew",
             padx=8,
             pady=10
@@ -403,22 +410,20 @@ class CompareSection(ctk.CTkFrame):
         )
         self.btn_clear_fields.grid(
             row=0,
-            column=2,
+            column=3,
             sticky="ew",
             padx=(8, 20),
             pady=10
         )
 
     def _create_result_label(self):
-        """
-        Создаёт строку результата.
-        """
+        """Создаёт строку результата."""
 
         self.result_label = ctk.CTkLabel(
             self,
             text=(
-                "По умолчанию: ищется похожий блок, "
-                "лишние части текста не мешают совпадениям."
+                "По умолчанию: ищутся похожие последовательные блоки. "
+                "Строки и абзацы не влияют на поиск."
             ),
             anchor="w"
         )
@@ -435,9 +440,7 @@ class CompareSection(ctk.CTkFrame):
     # =========================================================
 
     def _create_context_menu(self):
-        """
-        Создаёт контекстное меню для двух текстовых полей.
-        """
+        """Создаёт контекстное меню для двух текстовых полей."""
 
         self.context_menu = Menu(self, tearoff=0)
 
@@ -482,16 +485,12 @@ class CompareSection(ctk.CTkFrame):
         self.active_textbox = self.left_textbox
 
     def set_active_textbox(self, textbox):
-        """
-        Запоминает активное текстовое поле.
-        """
+        """Запоминает активное текстовое поле."""
 
         self.active_textbox = textbox
 
     def show_context_menu(self, event):
-        """
-        Показывает контекстное меню.
-        """
+        """Показывает контекстное меню."""
 
         self.active_textbox = event.widget
 
@@ -501,9 +500,7 @@ class CompareSection(ctk.CTkFrame):
             logger.exception("Ошибка при открытии контекстного меню сравнения")
 
     def copy_text(self):
-        """
-        Копирует выделенный текст.
-        """
+        """Копирует выделенный текст."""
 
         if self.active_textbox is None:
             return
@@ -516,9 +513,7 @@ class CompareSection(ctk.CTkFrame):
             pass
 
     def paste_text(self):
-        """
-        Вставляет текст из буфера обмена.
-        """
+        """Вставляет текст из буфера обмена."""
 
         if self.active_textbox is None:
             return
@@ -553,33 +548,28 @@ class CompareSection(ctk.CTkFrame):
 
     def _configure_text_tags(self):
         """
-        Настраивает теги для подсветки совпадений и различий.
+        Настраивает теги для подсветки.
 
         Важно:
         системное выделение текста в tk.Text — это тег "sel".
-        Если теги подсветки оказываются выше него, пользователь не видит,
-        что именно выделил мышью. Поэтому "sel" всегда поднимаем наверх.
+        Поэтому "sel" всегда поднимаем наверх.
         """
 
         for textbox in (self.left_textbox, self.right_textbox):
             self._configure_selection_style(textbox)
 
-            # Красный — различия.
             textbox.tag_configure(
                 "diff",
                 foreground="#991b1b",
                 background="#fecaca"
             )
 
-            # Зелёный — совпадения.
             textbox.tag_configure(
                 "match",
                 foreground="#166534",
                 background="#dcfce7"
             )
 
-            # Жёлтый — потенциально найденный/похожий фрагмент.
-            # Этот тег может пригодиться, если в твоей версии есть поиск похожего блока.
             textbox.tag_configure(
                 "similar",
                 foreground="#111827",
@@ -592,15 +582,30 @@ class CompareSection(ctk.CTkFrame):
                 background="#fef08a"
             )
 
-            self._raise_selection_tag(textbox)
+            textbox.tag_configure(
+                "sequence_missing",
+                foreground="#991b1b",
+                background="#fee2e2"
+            )
+
+            for index, color in enumerate(self.SEQUENCE_BLOCK_COLORS):
+                textbox.tag_configure(
+                    f"sequence_block_{index}",
+                    foreground="#111827",
+                    background=color
+                )
+
+            try:
+                textbox.tag_raise("diff")
+                textbox.tag_raise("sequence_missing")
+                textbox.tag_raise("sel")
+            except tk.TclError:
+                pass
+
             self._bind_selection_visibility_events(textbox)
 
     def _configure_selection_style(self, textbox):
-        """
-        Делает пользовательское выделение текста контрастным.
-
-        Работает поверх красной, зелёной и жёлтой подсветки.
-        """
+        """Делает пользовательское выделение текста контрастным."""
 
         try:
             textbox.configure(
@@ -621,9 +626,7 @@ class CompareSection(ctk.CTkFrame):
                 )
 
     def _raise_selection_tag(self, textbox):
-        """
-        Поднимает системный тег выделения 'sel' выше всех тегов подсветки.
-        """
+        """Поднимает системный тег выделения 'sel' выше всех тегов."""
 
         try:
             textbox.tag_raise("sel")
@@ -631,9 +634,7 @@ class CompareSection(ctk.CTkFrame):
             pass
 
     def _bind_selection_visibility_events(self, textbox):
-        """
-        Следит, чтобы выделение оставалось видимым после действий мышью и клавиатурой.
-        """
+        """Следит, чтобы выделение оставалось видимым."""
 
         textbox.bind(
             "<ButtonRelease-1>",
@@ -669,14 +670,18 @@ class CompareSection(ctk.CTkFrame):
             textbox.tag_remove("match", "1.0", "end")
             textbox.tag_remove("similar", "1.0", "end")
             textbox.tag_remove("search_match", "1.0", "end")
+            textbox.tag_remove("sequence_missing", "1.0", "end")
+
+            for tag_name in textbox.tag_names():
+                if tag_name.startswith("sequence_block_"):
+                    textbox.tag_remove(tag_name, "1.0", "end")
+
             self._raise_selection_tag(textbox)
 
         self.result_label.configure(text="Подсветка очищена.")
 
     def clear_fields(self):
-        """
-        Очищает оба поля сравнения.
-        """
+        """Очищает оба поля сравнения."""
 
         self.left_textbox.delete("1.0", "end")
         self.right_textbox.delete("1.0", "end")
@@ -684,9 +689,7 @@ class CompareSection(ctk.CTkFrame):
         self.result_label.configure(text="Поля очищены.")
 
     def _add_text_tag(self, textbox, start_char, end_char, tag_name):
-        """
-        Добавляет тег к диапазону символов.
-        """
+        """Добавляет тег к диапазону символов."""
 
         if start_char is None or end_char is None:
             return
@@ -710,16 +713,14 @@ class CompareSection(ctk.CTkFrame):
             )
 
     def _add_tag_for_normalized_range(
-            self,
-            textbox,
-            index_map,
-            norm_start,
-            norm_end,
-            tag_name
+        self,
+        textbox,
+        index_map,
+        norm_start,
+        norm_end,
+        tag_name
     ):
-        """
-        Подсвечивает диапазон нормализованного текста в исходном тексте.
-        """
+        """Подсвечивает диапазон нормализованного текста в исходном тексте."""
 
         if norm_start >= norm_end:
             return
@@ -762,16 +763,12 @@ class CompareSection(ctk.CTkFrame):
     # =========================================================
 
     def _is_punctuation(self, char):
-        """
-        Проверяет, является ли символ пунктуацией.
-        """
+        """Проверяет, является ли символ пунктуацией."""
 
         return unicodedata.category(char).startswith("P")
 
     def _normalize_char_for_compare(self, char):
-        """
-        Нормализует один символ для сравнения.
-        """
+        """Нормализует один символ для сравнения."""
 
         replacements = {
             "ё": "е",
@@ -822,9 +819,7 @@ class CompareSection(ctk.CTkFrame):
         return "".join(normalized_chars), index_map
 
     def _normalize_text_range_with_map(self, text, start_char, end_char):
-        """
-        Нормализует только выбранный диапазон текста.
-        """
+        """Нормализует только выбранный диапазон текста."""
 
         substring = text[start_char:end_char]
 
@@ -840,9 +835,7 @@ class CompareSection(ctk.CTkFrame):
         return normalized_text, global_index_map
 
     def _normalize_word_for_compare(self, word):
-        """
-        Нормализует слово/токен для сравнения.
-        """
+        """Нормализует слово/токен для сравнения."""
 
         if not word:
             return ""
@@ -868,7 +861,7 @@ class CompareSection(ctk.CTkFrame):
         """
         Нормализует ингредиент состава.
 
-        Для состава нормализация специально мягче к пунктуации:
+        Для состава нормализация мягче к пунктуации:
         PEG-40, PEG 40 и PEG40 часто должны восприниматься как одно.
         """
 
@@ -876,7 +869,6 @@ class CompareSection(ctk.CTkFrame):
             return ""
 
         ingredient = ingredient.strip()
-
         ingredient = self._remove_composition_prefix_from_text(ingredient)
 
         chars = []
@@ -902,13 +894,7 @@ class CompareSection(ctk.CTkFrame):
         """
         Разбивает текст на токены с позициями.
 
-        Возвращает список словарей:
-            {
-                "value": нормализованное значение,
-                "display": исходный текст токена,
-                "start": начало в исходной строке,
-                "end": конец в исходной строке
-            }
+        Используется для сравнения без учёта порядка слов.
         """
 
         tokens = []
@@ -925,6 +911,38 @@ class CompareSection(ctk.CTkFrame):
                 "display": display_value,
                 "start": offset + match.start(),
                 "end": offset + match.end()
+            })
+
+        return tokens
+
+    def _tokenize_sequence_units_with_ranges(self, text):
+        """
+        Разбивает текст на токены для поиска последовательных блоков.
+
+        Не используем строки и абзацы.
+        OCR может переносить один блок на несколько строк
+        или склеивать несколько блоков в одну строку.
+        """
+
+        tokens = []
+
+        pattern = re.compile(
+            r"[0-9A-Za-zА-Яа-яЁё]+"
+            r"(?:[-/][0-9A-Za-zА-Яа-яЁё]+)*"
+        )
+
+        for match in pattern.finditer(text):
+            display_value = match.group(0)
+            normalized_value = self._normalize_word_for_compare(display_value)
+
+            if not normalized_value:
+                continue
+
+            tokens.append({
+                "value": normalized_value,
+                "display": display_value,
+                "start": match.start(),
+                "end": match.end()
             })
 
         return tokens
@@ -994,9 +1012,7 @@ class CompareSection(ctk.CTkFrame):
     # =========================================================
 
     def _compare_with_order(self, text1, text2):
-        """
-        Сравнивает весь текст как последовательность символов.
-        """
+        """Сравнивает весь текст как последовательность символов."""
 
         normalized_1, map_1 = self._normalize_text_with_map(text1)
         normalized_2, map_2 = self._normalize_text_with_map(text2)
@@ -1068,11 +1084,11 @@ class CompareSection(ctk.CTkFrame):
     # =========================================================
 
     def _highlight_tokens_by_status(
-            self,
-            textbox,
-            tokens,
-            common_counter,
-            diff_counter
+        self,
+        textbox,
+        tokens,
+        common_counter,
+        diff_counter
     ):
         """
         Подсвечивает токены по статусу.
@@ -1107,9 +1123,7 @@ class CompareSection(ctk.CTkFrame):
                 common_left[value] -= 1
 
     def _compare_tokens_without_word_order(self, tokens1, tokens2):
-        """
-        Сравнивает два списка токенов без учёта порядка.
-        """
+        """Сравнивает два списка токенов без учёта порядка."""
 
         counter1 = Counter(
             token["value"]
@@ -1144,9 +1158,7 @@ class CompareSection(ctk.CTkFrame):
         return diff_words_count
 
     def _compare_without_word_order(self, text1, text2):
-        """
-        Сравнивает весь текст как набор слов.
-        """
+        """Сравнивает весь текст как набор слов."""
 
         tokens1 = self._tokenize_words_with_ranges(text1)
         tokens2 = self._tokenize_words_with_ranges(text2)
@@ -1174,139 +1186,611 @@ class CompareSection(ctk.CTkFrame):
         )
 
     # =========================================================
-    # ПОИСК ПОХОЖЕГО БЛОКА
+    # СРАВНЕНИЕ ПОСЛЕДОВАТЕЛЬНЫМИ БЛОКАМИ
     # =========================================================
 
-    def _find_best_window_against_target(self, full_tokens, target_tokens):
-        """
-        Ищет в длинном тексте окно, наиболее похожее на короткий текст.
-        """
+    def compare_as_sequence_blocks(self):
+        """Публичный метод для кнопки 'Сравнить блоками'."""
 
-        if not full_tokens or not target_tokens:
-            return None
+        self.clear_highlights()
 
-        full_values = [
-            token["value"]
-            for token in full_tokens
-        ]
+        text1 = self.left_textbox.get("1.0", "end-1c")
+        text2 = self.right_textbox.get("1.0", "end-1c")
 
-        target_values = [
-            token["value"]
-            for token in target_tokens
-        ]
+        if not text1 and not text2:
+            self.result_label.configure(text="Оба поля пустые.")
+            return
 
-        full_len = len(full_values)
-        target_len = len(target_values)
+        if not text1 or not text2:
+            self.result_label.configure(
+                text="Одно из полей пустое. Сравнение невозможно."
+            )
+            return
 
-        if full_len <= target_len:
-            ratio = difflib.SequenceMatcher(
-                None,
-                target_values,
-                full_values,
-                autojunk=False
-            ).ratio()
-
-            return {
-                "start": 0,
-                "end": full_len,
-                "ratio": ratio
-            }
-
-        min_window_len = max(1, int(target_len * 0.70))
-        max_window_len = min(full_len, int(target_len * 1.40) + 5)
-
-        candidate_lengths = {
-            target_len,
-            target_len - 10,
-            target_len - 5,
-            target_len + 5,
-            target_len + 10,
-            int(target_len * 0.80),
-            int(target_len * 0.90),
-            int(target_len * 1.10),
-            int(target_len * 1.20),
-            min_window_len,
-            max_window_len,
-        }
-
-        candidate_lengths = sorted(
-            length
-            for length in candidate_lengths
-            if 1 <= length <= full_len
-        )
-
-        best_result = None
-
-        step = 1
-
-        if full_len > 500:
-            step = max(1, full_len // 500)
-
-        for window_len in candidate_lengths:
-            max_start = full_len - window_len
-
-            for start in range(0, max_start + 1, step):
-                end = start + window_len
-                window_values = full_values[start:end]
-
-                ratio = difflib.SequenceMatcher(
-                    None,
-                    target_values,
-                    window_values,
-                    autojunk=False
-                ).ratio()
-
-                if best_result is None or ratio > best_result["ratio"]:
-                    best_result = {
-                        "start": start,
-                        "end": end,
-                        "ratio": ratio
-                    }
-
-        return best_result
-
-    def _find_best_similar_block_pair(self, tokens1, tokens2):
-        """
-        Определяет, какой текст короче,
-        и ищет его лучший аналог внутри второго текста.
-        """
-
-        if not tokens1 or not tokens2:
-            return None
-
-        if len(tokens1) <= len(tokens2):
-            window = self._find_best_window_against_target(
-                full_tokens=tokens2,
-                target_tokens=tokens1
+        try:
+            self._compare_by_sequence_blocks(text1, text2)
+        except Exception:
+            logger.exception("Ошибка при сравнении последовательными блоками")
+            self.result_label.configure(
+                text="Ошибка при сравнении блоками. Подробности в app.log."
             )
 
-            if window is None:
-                return None
+    def _compare_by_sequence_blocks(self, text1, text2):
+        """
+        Сравнивает тексты как набор последовательных совпадающих участков.
 
-            return {
-                "left_slice": (0, len(tokens1)),
-                "right_slice": (window["start"], window["end"]),
-                "ratio": window["ratio"]
-            }
+        Цветной фон = найденный общий блок.
+        Красный фон внутри цветного блока = отличие внутри найденного блока.
+        Красный фон вне цветных блоков = текст без пары.
+        """
 
-        window = self._find_best_window_against_target(
-            full_tokens=tokens1,
-            target_tokens=tokens2
+        tokens1 = self._tokenize_sequence_units_with_ranges(text1)
+        tokens2 = self._tokenize_sequence_units_with_ranges(text2)
+
+        if not tokens1 or not tokens2:
+            self._compare_with_order(text1, text2)
+            return
+
+        matched_runs = self._find_matching_token_runs(
+            left_tokens=tokens1,
+            right_tokens=tokens2
         )
 
-        if window is None:
-            return None
+        if not matched_runs:
+            self._compare_with_order(text1, text2)
+            self.result_label.configure(
+                text=(
+                    "Похожие последовательные блоки не найдены. "
+                    "Выполнено обычное сравнение всего текста."
+                )
+            )
+            return
+
+        groups = self._build_sequence_groups_from_runs(
+            matched_runs=matched_runs,
+            left_tokens=tokens1,
+            right_tokens=tokens2
+        )
+
+        groups = self._extend_sequence_groups_to_nearby_diffs(
+            groups=groups,
+            left_tokens=tokens1,
+            right_tokens=tokens2
+        )
+
+        if not groups:
+            self._compare_with_order(text1, text2)
+            return
+
+        diff_count = self._highlight_sequence_groups(
+            groups=groups,
+            left_tokens=tokens1,
+            right_tokens=tokens2,
+            text1=text1,
+            text2=text2
+        )
+
+        left_missing_count, right_missing_count = (
+            self._highlight_uncovered_sequence_tokens(
+                groups=groups,
+                left_tokens=tokens1,
+                right_tokens=tokens2
+            )
+        )
+
+        self._raise_diff_tags_above_blocks()
+
+        self.result_label.configure(
+            text=(
+                f"Найдено блоков: {len(groups)}. "
+                f"Различий внутри блоков: {diff_count}. "
+                f"Без пары: слева {left_missing_count}, справа {right_missing_count}."
+            )
+        )
+
+        logger.info(
+            (
+                "Сравнение последовательных блоков завершено. "
+                "groups=%s, diff_count=%s, left_missing=%s, right_missing=%s"
+            ),
+            len(groups),
+            diff_count,
+            left_missing_count,
+            right_missing_count
+        )
+
+    def _find_matching_token_runs(self, left_tokens, right_tokens):
+        """
+        Ищет совпадающие последовательности токенов между двумя полями.
+
+        Если блоки поменялись местами, совпадения всё равно найдутся.
+        Объединение в блоки решается позже по порядку.
+        """
+
+        right_index = {}
+
+        for index, token in enumerate(right_tokens):
+            value = token["value"]
+
+            if len(value) <= 1:
+                continue
+
+            right_index.setdefault(value, []).append(index)
+
+        candidates = []
+
+        for left_start, left_token in enumerate(left_tokens):
+            value = left_token["value"]
+
+            if value not in right_index:
+                continue
+
+            # Слишком частые слова дают шум.
+            if len(right_index[value]) > 40:
+                continue
+
+            for right_start in right_index[value]:
+                length = self._expand_equal_token_run(
+                    left_tokens=left_tokens,
+                    right_tokens=right_tokens,
+                    left_start=left_start,
+                    right_start=right_start
+                )
+
+                if length <= 0:
+                    continue
+
+                left_end = left_start + length
+                right_end = right_start + length
+
+                if not self._is_meaningful_token_run(
+                    tokens=left_tokens,
+                    start=left_start,
+                    end=left_end
+                ):
+                    continue
+
+                candidates.append({
+                    "left_start": left_start,
+                    "left_end": left_end,
+                    "right_start": right_start,
+                    "right_end": right_end,
+                    "length": length,
+                    "char_length": self._token_slice_char_length(
+                        left_tokens,
+                        left_start,
+                        left_end
+                    )
+                })
+
+        candidates.sort(
+            key=lambda item: (
+                item["length"],
+                item["char_length"]
+            ),
+            reverse=True
+        )
+
+        selected_runs = []
+        used_left = set()
+        used_right = set()
+
+        for candidate in candidates:
+            left_range = set(
+                range(candidate["left_start"], candidate["left_end"])
+            )
+            right_range = set(
+                range(candidate["right_start"], candidate["right_end"])
+            )
+
+            if left_range & used_left:
+                continue
+
+            if right_range & used_right:
+                continue
+
+            selected_runs.append(candidate)
+
+            used_left.update(left_range)
+            used_right.update(right_range)
+
+        selected_runs.sort(
+            key=lambda item: (
+                item["left_start"],
+                item["right_start"]
+            )
+        )
+
+        return selected_runs
+
+    def _expand_equal_token_run(
+        self,
+        left_tokens,
+        right_tokens,
+        left_start,
+        right_start
+    ):
+        """Расширяет совпадение вправо, пока токены одинаковые."""
+
+        length = 0
+
+        while (
+            left_start + length < len(left_tokens)
+            and right_start + length < len(right_tokens)
+            and left_tokens[left_start + length]["value"]
+            == right_tokens[right_start + length]["value"]
+        ):
+            length += 1
+
+        return length
+
+    def _is_meaningful_token_run(self, tokens, start, end):
+        """Проверяет, достаточно ли совпадение большое."""
+
+        token_count = end - start
+
+        if token_count >= 2:
+            return True
+
+        char_length = self._token_slice_char_length(tokens, start, end)
+
+        return char_length >= 8
+
+    def _token_slice_char_length(self, tokens, start, end):
+        """Возвращает длину диапазона токенов в символах исходного текста."""
+
+        if not tokens or start >= end:
+            return 0
+
+        start = max(0, min(start, len(tokens) - 1))
+        end = max(start + 1, min(end, len(tokens)))
+
+        return tokens[end - 1]["end"] - tokens[start]["start"]
+
+    def _build_sequence_groups_from_runs(
+        self,
+        matched_runs,
+        left_tokens,
+        right_tokens
+    ):
+        """
+        Объединяет найденные совпадения в блоки.
+
+        Два совпадения объединяются, если они идут в одинаковом порядке
+        и расстояние между ними небольшое.
+        """
+
+        if not matched_runs:
+            return []
+
+        groups = []
+        current_group = None
+
+        for run in matched_runs:
+            if current_group is None:
+                current_group = self._create_sequence_group_from_run(run)
+                continue
+
+            if self._can_merge_run_into_group(
+                group=current_group,
+                run=run,
+                left_tokens=left_tokens,
+                right_tokens=right_tokens
+            ):
+                current_group["left_end"] = run["left_end"]
+                current_group["right_end"] = run["right_end"]
+                current_group["runs"].append(run)
+            else:
+                groups.append(current_group)
+                current_group = self._create_sequence_group_from_run(run)
+
+        if current_group is not None:
+            groups.append(current_group)
+
+        return groups
+
+    def _create_sequence_group_from_run(self, run):
+        """Создаёт цветной блок из одного найденного совпадения."""
 
         return {
-            "left_slice": (window["start"], window["end"]),
-            "right_slice": (0, len(tokens2)),
-            "ratio": window["ratio"]
+            "left_start": run["left_start"],
+            "left_end": run["left_end"],
+            "right_start": run["right_start"],
+            "right_end": run["right_end"],
+            "runs": [run]
         }
 
+    def _can_merge_run_into_group(
+        self,
+        group,
+        run,
+        left_tokens,
+        right_tokens
+    ):
+        """Проверяет, можно ли присоединить run к текущему блоку."""
+
+        if run["left_start"] < group["left_end"]:
+            return False
+
+        # Если в правом поле run оказался раньше, значит порядок поменялся.
+        if run["right_start"] < group["right_end"]:
+            return False
+
+        left_gap = run["left_start"] - group["left_end"]
+        right_gap = run["right_start"] - group["right_end"]
+
+        max_gap_tokens = 8
+        max_gap_chars = 120
+
+        if left_gap > max_gap_tokens:
+            return False
+
+        if right_gap > max_gap_tokens:
+            return False
+
+        left_gap_chars = self._token_gap_char_length(
+            tokens=left_tokens,
+            start=group["left_end"],
+            end=run["left_start"]
+        )
+
+        right_gap_chars = self._token_gap_char_length(
+            tokens=right_tokens,
+            start=group["right_end"],
+            end=run["right_start"]
+        )
+
+        if left_gap_chars > max_gap_chars:
+            return False
+
+        if right_gap_chars > max_gap_chars:
+            return False
+
+        return True
+
+    def _token_gap_char_length(self, tokens, start, end):
+        """Возвращает длину промежутка между двумя токенами."""
+
+        if not tokens or start >= end:
+            return 0
+
+        start = max(0, min(start, len(tokens) - 1))
+        end = max(0, min(end, len(tokens)))
+
+        return tokens[end - 1]["end"] - tokens[start]["start"]
+
+    def _extend_sequence_groups_to_nearby_diffs(
+        self,
+        groups,
+        left_tokens,
+        right_tokens
+    ):
+        """
+        Немного расширяет границы найденных блоков.
+
+        Это нужно, чтобы небольшие добавления внутри блока считались
+        отличиями внутри найденного блока, а не отдельным потерянным текстом.
+        """
+
+        if not groups:
+            return []
+
+        max_tail_tokens = 6
+        max_tail_chars = 80
+
+        extended = []
+
+        for index, group in enumerate(groups):
+            new_group = dict(group)
+            new_group["runs"] = list(group["runs"])
+
+            if index + 1 < len(groups):
+                next_group = groups[index + 1]
+                next_left_start = next_group["left_start"]
+                next_right_start = next_group["right_start"]
+            else:
+                next_left_start = len(left_tokens)
+                next_right_start = len(right_tokens)
+
+            left_tail_tokens = next_left_start - new_group["left_end"]
+
+            if 0 < left_tail_tokens <= max_tail_tokens:
+                left_tail_chars = self._token_gap_char_length(
+                    tokens=left_tokens,
+                    start=new_group["left_end"],
+                    end=next_left_start
+                )
+
+                if left_tail_chars <= max_tail_chars:
+                    new_group["left_end"] = next_left_start
+
+            right_tail_tokens = next_right_start - new_group["right_end"]
+
+            if 0 < right_tail_tokens <= max_tail_tokens:
+                right_tail_chars = self._token_gap_char_length(
+                    tokens=right_tokens,
+                    start=new_group["right_end"],
+                    end=next_right_start
+                )
+
+                if right_tail_chars <= max_tail_chars:
+                    new_group["right_end"] = next_right_start
+
+            extended.append(new_group)
+
+        return extended
+
+    def _highlight_sequence_groups(
+        self,
+        groups,
+        left_tokens,
+        right_tokens,
+        text1,
+        text2
+    ):
+        """
+        Подсвечивает найденные группы.
+
+        Цветной фон показывает общий найденный блок.
+        Красный фон внутри блока показывает различия.
+        """
+
+        total_diff_count = 0
+
+        for group_index, group in enumerate(groups):
+            tag_index = group_index % len(self.SEQUENCE_BLOCK_COLORS)
+            tag_name = f"sequence_block_{tag_index}"
+
+            left_range = self._get_token_slice_text_range(
+                tokens=left_tokens,
+                slice_start=group["left_start"],
+                slice_end=group["left_end"]
+            )
+
+            right_range = self._get_token_slice_text_range(
+                tokens=right_tokens,
+                slice_start=group["right_start"],
+                slice_end=group["right_end"]
+            )
+
+            self._add_text_tag(
+                self.left_textbox,
+                left_range[0],
+                left_range[1],
+                tag_name
+            )
+
+            self._add_text_tag(
+                self.right_textbox,
+                right_range[0],
+                right_range[1],
+                tag_name
+            )
+
+            if self.ignore_word_order_var.get():
+                diff_count = self._compare_ranges_without_word_order(
+                    text1=text1,
+                    text2=text2,
+                    left_range=left_range,
+                    right_range=right_range
+                )
+            else:
+                diff_count = self._compare_ranges_with_order(
+                    text1=text1,
+                    text2=text2,
+                    left_range=left_range,
+                    right_range=right_range
+                )
+
+            total_diff_count += diff_count
+
+        return total_diff_count
+
+    def _highlight_uncovered_sequence_tokens(
+        self,
+        groups,
+        left_tokens,
+        right_tokens
+    ):
+        """Подсвечивает красным токены, которые не попали ни в один блок."""
+
+        left_covered = self._collect_covered_token_indexes(
+            groups=groups,
+            side="left"
+        )
+
+        right_covered = self._collect_covered_token_indexes(
+            groups=groups,
+            side="right"
+        )
+
+        left_missing_count = self._highlight_uncovered_token_runs(
+            textbox=self.left_textbox,
+            tokens=left_tokens,
+            covered_indexes=left_covered
+        )
+
+        right_missing_count = self._highlight_uncovered_token_runs(
+            textbox=self.right_textbox,
+            tokens=right_tokens,
+            covered_indexes=right_covered
+        )
+
+        return left_missing_count, right_missing_count
+
+    def _collect_covered_token_indexes(self, groups, side):
+        """Собирает индексы токенов, попавших в найденные блоки."""
+
+        covered = set()
+
+        for group in groups:
+            if side == "left":
+                start = group["left_start"]
+                end = group["left_end"]
+            else:
+                start = group["right_start"]
+                end = group["right_end"]
+
+            covered.update(range(start, end))
+
+        return covered
+
+    def _highlight_uncovered_token_runs(
+        self,
+        textbox,
+        tokens,
+        covered_indexes
+    ):
+        """Подсвечивает непокрытые токены группами."""
+
+        missing_count = 0
+        run_start = None
+        run_end = None
+
+        for index, token in enumerate(tokens):
+            if index in covered_indexes:
+                if run_start is not None:
+                    self._add_text_tag(
+                        textbox,
+                        run_start,
+                        run_end,
+                        "sequence_missing"
+                    )
+                    run_start = None
+                    run_end = None
+
+                continue
+
+            missing_count += 1
+
+            if run_start is None:
+                run_start = token["start"]
+
+            run_end = token["end"]
+
+        if run_start is not None:
+            self._add_text_tag(
+                textbox,
+                run_start,
+                run_end,
+                "sequence_missing"
+            )
+
+        return missing_count
+
+    def _raise_diff_tags_above_blocks(self):
+        """Поднимает красную подсветку выше цветных блоков."""
+
+        for textbox in (self.left_textbox, self.right_textbox):
+            try:
+                textbox.tag_raise("diff")
+                textbox.tag_raise("sequence_missing")
+                textbox.tag_raise("sel")
+            except tk.TclError:
+                pass
+
     def _get_token_slice_text_range(self, tokens, slice_start, slice_end):
-        """
-        Превращает диапазон токенов в диапазон символов исходного текста.
-        """
+        """Превращает диапазон токенов в диапазон символов исходного текста."""
 
         if not tokens:
             return 0, 0
@@ -1322,38 +1806,14 @@ class CompareSection(ctk.CTkFrame):
 
         return text_start, text_end
 
-    def _highlight_found_block_ranges(self, left_range, right_range):
-        """
-        Немного подсвечивает найденные похожие блоки.
-        """
-
-        left_start, left_end = left_range
-        right_start, right_end = right_range
-
-        self._add_text_tag(
-            self.left_textbox,
-            left_start,
-            left_end,
-            "block"
-        )
-
-        self._add_text_tag(
-            self.right_textbox,
-            right_start,
-            right_end,
-            "block"
-        )
-
     def _compare_ranges_with_order(
-            self,
-            text1,
-            text2,
-            left_range,
-            right_range
+        self,
+        text1,
+        text2,
+        left_range,
+        right_range
     ):
-        """
-        Сравнивает только найденные похожие диапазоны.
-        """
+        """Сравнивает только выбранные диапазоны с учётом порядка."""
 
         left_start, left_end = left_range
         right_start, right_end = right_range
@@ -1423,15 +1883,13 @@ class CompareSection(ctk.CTkFrame):
         return diff_blocks_count
 
     def _compare_ranges_without_word_order(
-            self,
-            text1,
-            text2,
-            left_range,
-            right_range
+        self,
+        text1,
+        text2,
+        left_range,
+        right_range
     ):
-        """
-        Сравнивает найденные похожие диапазоны без учёта порядка слов.
-        """
+        """Сравнивает выбранные диапазоны без учёта порядка слов."""
 
         left_start, left_end = left_range
         right_start, right_end = right_range
@@ -1452,115 +1910,6 @@ class CompareSection(ctk.CTkFrame):
         return self._compare_tokens_without_word_order(
             tokens1,
             tokens2
-        )
-
-    def _compare_by_best_similar_block(self, text1, text2):
-        """
-        Ищет общий похожий блок и сравнивает только его.
-
-        Лишний текст вне найденного блока не считается ошибкой.
-        """
-
-        tokens1 = self._tokenize_words_with_ranges(text1)
-        tokens2 = self._tokenize_words_with_ranges(text2)
-
-        if not tokens1 or not tokens2:
-            self._compare_with_order(text1, text2)
-            return
-
-        block_pair = self._find_best_similar_block_pair(
-            tokens1=tokens1,
-            tokens2=tokens2
-        )
-
-        if block_pair is None:
-            self._compare_with_order(text1, text2)
-            return
-
-        similarity_percent = int(block_pair["ratio"] * 100)
-
-        if block_pair["ratio"] < 0.30:
-            self._compare_with_order(text1, text2)
-            self.result_label.configure(
-                text=(
-                    "Похожий блок не найден. "
-                    "Выполнено обычное сравнение всего текста."
-                )
-            )
-            return
-
-        left_slice_start, left_slice_end = block_pair["left_slice"]
-        right_slice_start, right_slice_end = block_pair["right_slice"]
-
-        left_range = self._get_token_slice_text_range(
-            tokens=tokens1,
-            slice_start=left_slice_start,
-            slice_end=left_slice_end
-        )
-
-        right_range = self._get_token_slice_text_range(
-            tokens=tokens2,
-            slice_start=right_slice_start,
-            slice_end=right_slice_end
-        )
-
-        self._highlight_found_block_ranges(
-            left_range=left_range,
-            right_range=right_range
-        )
-
-        if self.ignore_word_order_var.get():
-            diff_count = self._compare_ranges_without_word_order(
-                text1=text1,
-                text2=text2,
-                left_range=left_range,
-                right_range=right_range
-            )
-
-            diff_label = "отличающихся слов"
-        else:
-            diff_count = self._compare_ranges_with_order(
-                text1=text1,
-                text2=text2,
-                left_range=left_range,
-                right_range=right_range
-            )
-
-            diff_label = "блоков различий"
-
-        ignored_left_tokens = len(tokens1) - (left_slice_end - left_slice_start)
-        ignored_right_tokens = len(tokens2) - (right_slice_end - right_slice_start)
-
-        if diff_count == 0:
-            self.result_label.configure(
-                text=(
-                    f"Различий внутри похожего блока не найдено. "
-                    f"Схожесть блока: {similarity_percent}%. "
-                    f"Игнорировано лишних слов вне блока: "
-                    f"слева {ignored_left_tokens}, справа {ignored_right_tokens}."
-                )
-            )
-        else:
-            self.result_label.configure(
-                text=(
-                    f"Найдено {diff_count} {diff_label} внутри похожего блока. "
-                    f"Схожесть блока: {similarity_percent}%. "
-                    f"Лишние блоки вне найденного участка не учитывались."
-                )
-            )
-
-        logger.info(
-            (
-                "Сравнение по похожему блоку завершено. "
-                "ratio=%s, left_slice=%s, right_slice=%s, "
-                "ignored_left=%s, ignored_right=%s, diff_count=%s"
-            ),
-            round(block_pair["ratio"], 3),
-            block_pair["left_slice"],
-            block_pair["right_slice"],
-            ignored_left_tokens,
-            ignored_right_tokens,
-            diff_count
         )
 
     # =========================================================
@@ -1587,8 +1936,6 @@ class CompareSection(ctk.CTkFrame):
             r"\bingredients?\s*[:：]",
             r"\binci\s*[:：]",
             r"\bcomposition\s*[:：]",
-
-            # Частые OCR-варианты слова СОСТАВ.
             r"\bcoctab\s*[:：]",
             r"\bc0ctab\s*[:：]",
             r"\bс0став\s*[:：]",
@@ -1617,9 +1964,7 @@ class CompareSection(ctk.CTkFrame):
         return text[best_match.end():], best_match.end()
 
     def _remove_composition_prefix_from_text(self, text):
-        """
-        Удаляет заголовок состава из фрагмента текста.
-        """
+        """Удаляет заголовок состава из фрагмента текста."""
 
         if not text:
             return ""
@@ -1649,9 +1994,7 @@ class CompareSection(ctk.CTkFrame):
         return cleaned.strip()
 
     def _compare_ingredient_tokens(self, ingredients1, ingredients2):
-        """
-        Сравнивает ингредиенты как набор значений.
-        """
+        """Сравнивает ингредиенты как набор значений."""
 
         counter1 = Counter(
             ingredient["value"]
@@ -1764,9 +2107,9 @@ class CompareSection(ctk.CTkFrame):
         Главный метод сравнения.
 
         Логика:
-        1. Если включено "Искать похожий блок" —
-           ищем общий участок и сравниваем только его.
-        2. Если похожий блок выключен, но включено
+        1. Если включено "Искать похожие блоки" —
+           ищем несколько последовательных блоков.
+        2. Если похожие блоки выключены, но включено
            "Не учитывать порядок слов" — сравниваем весь текст как набор слов.
         3. Иначе сравниваем весь текст как последовательность символов.
         """
@@ -1788,7 +2131,7 @@ class CompareSection(ctk.CTkFrame):
 
         try:
             if self.find_similar_block_var.get():
-                self._compare_by_best_similar_block(text1, text2)
+                self._compare_by_sequence_blocks(text1, text2)
 
             elif self.ignore_word_order_var.get():
                 self._compare_without_word_order(text1, text2)
@@ -1807,22 +2150,14 @@ class CompareSection(ctk.CTkFrame):
     # =========================================================
 
     def set_text_left(self, text):
-        """
-        Устанавливает текст в левое поле.
-
-        Вызывается через AppController.
-        """
+        """Устанавливает текст в левое поле."""
 
         self.left_textbox.delete("1.0", "end")
         self.left_textbox.insert("1.0", text or "")
         self.clear_highlights()
 
     def set_text_right(self, text):
-        """
-        Устанавливает текст в правое поле.
-
-        Вызывается через AppController.
-        """
+        """Устанавливает текст в правое поле."""
 
         self.right_textbox.delete("1.0", "end")
         self.right_textbox.insert("1.0", text or "")
