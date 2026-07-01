@@ -193,7 +193,7 @@ class ExcelViewerFrame(ctk.CTkFrame):
     def _create_table_container(self):
         """Создаёт контейнер для таблицы."""
 
-        self.table_container = tk.Frame(self, bg="#2b2b2b")
+        self.table_container = tk.Frame(self, bg="#ffffff")
         self.table_container.grid(
             row=1,
             column=0,
@@ -218,27 +218,30 @@ class ExcelViewerFrame(ctk.CTkFrame):
             align="w",
             font=("Arial", 11, ""),
             header_font=("Arial", 11, "bold"),
-            table_bg="#2b2b2b",
-            table_fg="#ffffff",
-            table_grid_fg="#444444",
-            table_selected_cells_bg="#1a5276",
+
+            # Основная таблица.
+            table_bg="#ffffff",
+            table_fg="#111827",
+            table_grid_fg="#d1d5db",
+
+            # Выделенные ячейки.
+            table_selected_cells_bg="#3b82f6",
             table_selected_cells_fg="#ffffff",
-            header_bg="#333333",
-            header_fg="#ffffff",
-            header_selected_cells_bg="#1a5276",
+
+            # Заголовки колонок.
+            header_bg="#f3f4f6",
+            header_fg="#111827",
+            header_selected_cells_bg="#3b82f6",
             header_selected_cells_fg="#ffffff",
-            index_bg="#333333",
-            index_fg="#ffffff",
-            index_selected_cells_bg="#1a5276",
+
+            # Индексы строк.
+            index_bg="#f3f4f6",
+            index_fg="#111827",
+            index_selected_cells_bg="#3b82f6",
             index_selected_cells_fg="#ffffff",
         )
         self.sheet.grid(row=0, column=0, sticky="nsew")
 
-        # Пока оставляем all, чтобы работали:
-        # - выделение протягиванием;
-        # - выделение строк/колонок;
-        # - копирование;
-        # - навигация.
         self._enable_sheet_selection_bindings()
 
         self.after(100, self._setup_context_menu)
