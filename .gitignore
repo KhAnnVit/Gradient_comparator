@@ -21,6 +21,7 @@ data/app.log
 # App user data
 data/raw/*
 data/processed/*
+external/
 
 # Keep empty folders
 !data/raw/.gitkeep
