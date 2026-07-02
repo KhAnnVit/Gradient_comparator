@@ -31,7 +31,7 @@ class App(ctk.CTk):
         super().__init__()
 
         self.title("СверкаМакетов")
-        self.geometry("1200x750")
+        self._set_initial_window_geometry()
 
         # =====================================================
         # STATE + CONTROLLER
@@ -130,6 +130,33 @@ class App(ctk.CTk):
 
         # Открываем первый раздел по умолчанию.
         self.controller.go_to_tab("tab1")
+
+    def _set_initial_window_geometry(self):
+        """
+        Задаёт стартовый размер окна и размещает его по центру экрана.
+
+        Это нужно, чтобы окно не появлялось каждый раз в случайном месте
+        и не выходило за пределы видимого экрана.
+        """
+
+        window_width = 1280
+        window_height = 820
+
+        self.update_idletasks()
+
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+
+        # Если экран маленький, уменьшаем стартовый размер окна,
+        # чтобы оно точно помещалось на экране.
+        window_width = min(window_width, screen_width - 80)
+        window_height = min(window_height, screen_height - 100)
+
+        x = max(0, int((screen_width - window_width) / 2))
+        y = max(0, int((screen_height - window_height) / 2))
+
+        self.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.minsize(1000, 650)
 
     # =========================================================
     # НАВИГАЦИЯ
