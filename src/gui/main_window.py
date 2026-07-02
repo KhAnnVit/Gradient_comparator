@@ -30,7 +30,7 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("PDF & Excel Data Reconciliator")
+        self.title("СверкаМакетов")
         self.geometry("1200x750")
 
         # =====================================================
